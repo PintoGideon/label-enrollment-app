@@ -23,6 +23,8 @@ It does not bundle or invoke `clid`.
 Application implementation has not started. The backlog begins with **S00:
 lock the pilot scope and unblock access**. Required decisions and approved
 nonproduction fixtures/access must be resolved before starting S01.
+The [S00 decision sheet](plans/S00-pilot-scope.md) is being reviewed on
+`slice/s00-pilot-scope`; no prerequisite has been marked complete.
 
 Use a separate branch for each slice. Keep tests, review evidence, and scope
 changes with that slice; do not mark proposed or mocked behavior as validated.

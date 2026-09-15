@@ -47,7 +47,7 @@ The `reference/` checkouts remain study material. Implementation will use explic
 
 ## 3. Slice index and dependencies
 
-All slices are **not started**. Dependencies mean the upstream acceptance gate has passed, not merely that its code exists. Only S00 is ready for review now.
+**S00 is in decision review**, with required decisions/access still pending; see its [decision sheet](plans/S00-pilot-scope.md). **S01-S24 are not started.** Dependencies mean the upstream acceptance gate has passed, not merely that its code exists. Only S00 is ready for review now.
 
 | ID | Slice / observable outcome | Depends on | Area |
 |---|---|---|---|
@@ -143,6 +143,7 @@ A later reliability/security slice is a system-level rehearsal, not permission t
 
 **Outcome:** one explicit decision sheet, not assumptions hidden in code.
 **Depends on:** none. **Area:** product, algorithm owner and platform owner.
+**Decision review:** [plans/S00-pilot-scope.md](plans/S00-pilot-scope.md), on `slice/s00-pilot-scope`. Required decisions and access remain pending.
 
 TODO:
 - [ ] Confirm integrated Qt desktop and cloud enrollment worker versus Windows-origin enrollment; record the decision.
