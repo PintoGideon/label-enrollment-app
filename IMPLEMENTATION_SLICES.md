@@ -1,6 +1,6 @@
 # Labeltron Enrollment - Implementation Slices and TODOs
 
-**Status: proposed backlog. No implementation has started.** All checkboxes below are intentionally open. Repository-review findings are inputs to these tasks, not evidence that a task is finished.
+**Status: proposed backlog. No implementation has started.** Only explicitly confirmed S00 decisions may be checked; implementation tasks remain open. Repository-review findings are inputs, not evidence that a code slice is finished.
 
 Architecture: [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md).
 Detailed design: [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md).
@@ -20,7 +20,7 @@ A slice should normally fit in a few focused engineering days and one or a few s
 
 ### Initial scope, subject to S00 approval
 
-- Extend the existing Python/PyQt6 Windows app.
+- **Selected:** Tauri v2 + bundled web UI, retaining the existing Python capture engine as a local helper. React/TypeScript/Vite is proposed, pending framework confirmation.
 - Cloud Rust stitcher; cloud worker makes direct APID HTTP calls; no clid binary.
 - One approved label profile and flat continuous streams first.
 - One capture run / selected processing attempt per enrollment plan.
@@ -28,26 +28,29 @@ A slice should normally fit in a few focused engineering days and one or a few s
 - Explicit indexing and physical-position policy; never inherit API defaults silently.
 - Required-label failures block plan approval. No silent fallback, skipped/re-numbered labels or automatic enrollment.
 - Polling/phase progress first; no WebSocket/SSE infrastructure required.
-- No algorithm rewrite, local Windows stitcher, new camera UI or multi-segment Reel merging.
+- New web capture controls are in scope; rewriting camera drivers/trigger recipes is not. No algorithm rewrite, local Windows stitcher or multi-segment Reel merging.
 
 ## 2. Ownership and code boundaries
 
 | Area | Implementation home | Notes |
 |---|---|---|
-| Desktop | `dustid/labeltron-two`, based on `jhodges/wininstaller` | Qt-free `pipeline/` logic, existing controller/worker bridge, small UI panels |
+| Desktop | New Tauri/web UI in this repository; proposed `apps/desktop/` | Web presentation; Rust-owned commands, credentials, helper supervision, cloud HTTP and SQLite upload journal |
+| Capture helper | Approved `dustid/labeltron-two` working branch/package based on `jhodges/wininstaller`; distribution/owner confirmed in S00 | Reuse Qt-free core, simulator and preflight; add headless protocol/sealing; preserve existing CLI/Qt regression clients |
 | Engine | `dustid/labeltron-two-stitcher` | Rust algorithm, wrapper, checkpoints and output contracts |
 | Workflow | New backend; repository/location confirmed in S00 | One TypeScript codebase for HTTP API, scheduler, importer and enrollment worker |
-| Contracts/tests | Versioned schemas and synthetic/golden fixtures | Same contract examples tested by Python, TypeScript and Rust where relevant |
+| Contracts/tests | Proposed `packages/contracts/`, versioned schemas and safe fixtures | Cloud contracts and native/Python IPC; same identities/errors tested by TypeScript, Rust and Python |
 | Storage/compute | Approved cloud infrastructure | One upload-signing authority; adapt the existing upload service or implement its successor route deliberately |
 | APID | Existing HTTP API | No server change needed for supervised enrollment into an existing Reel |
 
 Suggested Workflow module boundaries: `auth/`, `runs/`, `storage/`, `jobs/`, `results/`, `reviews/`, `enrollment/`, `apid/`. These are modules, not separate microservices. Introduce tables/routes as their slices need them; do not scaffold every future module in the first PR.
 
-The `reference/` checkouts remain study material. Implementation will use explicit working branches in the chosen repositories. Do not initialize repositories, change those checkouts, install dependencies or provision infrastructure as part of approving this plan.
+The `reference/` checkouts remain ignored study material, never runtime imports, vendored code or submodules in this repository. The user has separately authorized creation of this private planning repository and the S00 branch. Application implementation still requires the slice gates; use pinned packages/explicit working branches in the chosen repositories, not edits to those reference checkouts.
 
 ## 3. Slice index and dependencies
 
-**S00 is in decision review**, with required decisions/access still pending; see its [decision sheet](plans/S00-pilot-scope.md). **S01-S24 are not started.** Dependencies mean the upstream acceptance gate has passed, not merely that its code exists. Only S00 is ready for review now.
+**S00 is in decision review**: Tauri/web UI with Python capture reuse is confirmed, but remaining required decisions/access are pending; see its [decision sheet](plans/S00-pilot-scope.md). **S01-S24 and all child tickets are not started.** Dependencies mean acceptance passed, not merely that code exists. Only S00 is ready for review now.
+
+Keep the 25 parent IDs stable. The child-gate table below splits the added Tauri/helper scope into smaller deliverables and permits early native proofs after S01. A parent passes only after its final child and inherited prerequisites pass.
 
 | ID | Slice / observable outcome | Depends on | Area |
 |---|---|---|---|
@@ -61,65 +64,62 @@ The `reference/` checkouts remain study material. Implementation will use explic
 | S07 | Existing S3 run imported as a verified immutable input | S06 | Workflow / storage |
 | S08 | One cloud processing job with durable status and cancellation | S02, S03, S07 | Workflow / engine / platform |
 | S09 | Validated, immutable result artifacts and candidate API | S08 | Workflow |
-| S10 | Desktop can browse a cloud run and start/watch processing | S09 | Desktop |
+| S10 | Tauri desktop can browse a cloud run and start/watch processing | S10b | Desktop |
 | S11 | Operator reviews images, identities and exceptions | S10 | Desktop / Workflow |
 | S12 | Destination/positions selected; exact enrollment plan approved | S04, S11 | Desktop / Workflow |
 | S13 | One approved pilot label enrolled with a durable receipt | S12 | Desktop / Workflow |
 | S14 | Lost API responses and interrupted rows reconcile safely | S13 | Workflow |
 | S15 | Bounded bulk enrollment with pause/resume | S14 | Desktop / Workflow |
 | S16 | Per-position reconciliation and downloadable final report | S15 | Desktop / Workflow |
-| S17 | Capture produces atomic files and a sealed manifest | S01 | Desktop |
+| S17 | Python helper produces atomic captures and a sealed manifest | S17b | Capture / desktop |
 | S18 | Checksum-aware upload API and verified completion | S07 | Workflow / storage |
 | S19 | Desktop uploads resume safely after restart | S10, S17, S18 | Desktop |
-| S20 | Fresh capture enters the complete workflow without scripts | S16, S19 | Desktop / Workflow |
-| S21 | Signed Windows installer and upgrade/rollback validation | S20 | Desktop / release |
+| S20 | Web capture controls enter the complete workflow without scripts | S20b | Desktop / Workflow |
+| S21 | Signed Tauri/helper installer and upgrade/rollback validation | S21b | Desktop / release |
 | S22 | Production infrastructure, capacity, backups and operations ready | S16, S19 | Workflow / platform |
 | S23 | Integrated failure/security rehearsal passes | S21, S22 | Cross-cutting |
 | S24 | Controlled physical-Reel pilot and release decision | S23 | Operations / product / algorithm |
 
+### Tauri/helper child gates
+
+Each row is a separately reviewable ticket. The parent checklists below define shared requirements; split further if a ticket exceeds roughly three implementation days.
+
+| ID | Deliverable / acceptance evidence | Depends on |
+|---|---|---|
+| S10a | Minimal Tauri shell, typed fake native/helper bridge, restricted command surface, responsive bundled web UI and Windows/WebView2 smoke bundle; no camera/cloud writes | S01 |
+| S10b | Native browser/PKCE and credential lifecycle, allowlisted Workflow client, Runs/import/process UI; restart/expiry/denied-project tests against S09; completes S10 | S09, S10a |
+| S17a | Versioned Python helper over inherited pipes, Rust supervision, simulator/preflight, start/status/stop and packaged Windows helper proof; malformed protocol, duplicate start, EOF/exit and backpressure tests; never claim sealing yet | S01, S10a |
+| S17b | Atomic files, real writer/QR barrier, sealed inventory and crash recovery using that helper; simulator/golden and fault tests; completes S17 | S17a |
+| S20a | Web camera/preview/settings/start/stop controls over the retained engine; bounded preview and supported control parity, single camera owner, offline capture and close/reload tests | S10, S17 |
+| S20b | Fresh capture -> upload -> cloud review/enrollment/report using the preceding slices; completes S20 | S16, S19, S20a |
+| S21a | Tauri Windows bundle with pinned headless helper/resources, WebView2 and Vimba prerequisite handling; clean-machine/offline provisioning evidence | S20 |
+| S21b | Signing, helper/host version checks, old-app data import, upgrade/rollback and diagnostic validation; completes S21 | S21a |
+
 ### Work lanes
 
 ```text
-                               S00 -> S01
-                                        |
-                  +---------------------+------------------------+
-                  |                     |                        |
-                  v                     v                        v
-                 S02                   S05                      S17
-                /   \                   |
-               v     v                  v
-              S03   S04                S06
-                                        |
-                                        v
-                                       S07 ---------> S18
-                                        |
-                         S02 + S03 -----+---> S08 -> S09 -> S10 -> S11
-                                                                 |       |
-                                              S17 + S18 ---------+       +---+
-                                                                 v           |
-                                                                S19          |
-                                                                             v
-                                                               S04 -------> S12
-                                                                             |
-                                                                             v
-                                                                  S13 -> S14 -> S15
-                                                                                 |
-                                                                                 v
-                                                                                S16
-                                                                                 |
-                                                 S19 + S16 ---------------------+
-                                                          |
-                                                +---------+---------+
-                                                v                   v
-                                               S20                 S22
-                                                |
-                                                v
-                                               S21
-                                                |
-                                         S21 + S22 -> S23 -> S24
+ S00 -> S01
+          +--> S02 --> S03
+          |      +---> S04 (early, opt-in APID proof)
+          |
+          +--> S05 --> S06 --> S07 --> S18
+          |                     |
+          |       S02 + S03 ----+--> S08 --> S09 ---------+
+          |                                             v
+          +--> S10a ---------------------------------> S10b --> S10 --> S11
+                  |                                                     |
+                  +--> S17a --> S17b --> S17                S04 --------+--> S12
+                                                                           |
+                                                      S16 <-- S15 <-- S14 <-- S13
+
+ S10 + S17 + S18 --------> S19
+ S10 + S17 -------------> S20a
+ S16 + S19 + S20a -------> S20b --> S20 --> S21a --> S21b --> S21
+ S16 + S19 -------------> S22
+ S21 + S22 -------------> S23 --> S24
 ```
 
-The table is authoritative if the overview diagram omits a dependency. S04 is an opt-in nonproduction technical probe; it does not unlock unattended/product enrollment. That only starts after review and durable intent exist in S12-S14.
+The parent and child dependency tables are authoritative if the overview diagram omits a dependency. S04 is an opt-in nonproduction technical probe; it does not unlock unattended/product enrollment. That only starts after review and durable intent exist in S12-S14.
 
 ## 4. Common definition of done
 
@@ -143,16 +143,17 @@ A later reliability/security slice is a system-level rehearsal, not permission t
 
 **Outcome:** one explicit decision sheet, not assumptions hidden in code.
 **Depends on:** none. **Area:** product, algorithm owner and platform owner.
-**Decision review:** [plans/S00-pilot-scope.md](plans/S00-pilot-scope.md), on `slice/s00-pilot-scope`. Required decisions and access remain pending.
+**Decision review:** [plans/S00-pilot-scope.md](plans/S00-pilot-scope.md), on `slice/s00-pilot-scope`. Desktop shell/core reuse is confirmed; remaining required decisions and access are pending.
 
 TODO:
-- [ ] Confirm integrated Qt desktop and cloud enrollment worker versus Windows-origin enrollment; record the decision.
-- [ ] Confirm Workflow repository location, backend runtime, operated EKS versus Batch/ECS, nonproduction endpoints and owners.
+- [x] Select Tauri + bundled web UI while retaining the Python capture engine as a local helper (user confirmed; no implementation implied).
+- [ ] Confirm frontend framework/tooling proposal and cloud enrollment worker versus Windows-origin enrollment; record these separately from the shell decision.
+- [ ] Confirm Workflow repository/runtime, capture-helper upstream/distribution/owners, operated EKS versus Batch/ECS, nonproduction endpoints and owners.
 - [ ] Choose the initial profile, required DUST slots, serial authority and reference-data version.
 - [ ] Define scan-order/reference-order/APID-position mapping, including reverse feed and endpoint labels; define indexing and no-gap policy.
 - [ ] Obtain an approved small raw run, representative edge cases and independently checked label-to-QR-to-shield ground truth. Use supplied copies outside protected `manifests/`; do not read/change that directory.
 - [ ] Arrange a nonproduction Team-scoped service account, pre-created disposable Reel(s), approved S3 prefixes and explicit permission for the test writes.
-- [ ] Record supported Windows/camera environment, target workload, storage retention and which checks require real hardware.
+- [ ] Record supported Windows/camera and WebView2 environment, helper/runtime distribution permissions, target workload, retention, and which checks require real hardware.
 
 **Acceptance:** required scope/identity/position/indexing decisions are approved and prerequisite fixture/environment access is available. An unresolved required item keeps S00 blocked; merely naming its owner does not complete the slice. Normal development needs no production credentials/data.
 **Not included:** implementation, dependency installation, real enrollment or infrastructure deployment.
@@ -164,13 +165,14 @@ TODO:
 
 TODO:
 - [ ] Define minimal versioned `CaptureManifest`, `ProcessingAttempt`, `ResultManifest`, `LabelCandidate`, `EnrollmentPlan`, row receipt and event/error schemas.
+- [ ] Define native/Python IPC envelopes: version/session handshake, bounded JSON Lines, request/run IDs, stable errors, start/status/stop, event ordering, preview handles, timeout/unknown outcome and shutdown semantics; raw pixels are not JSON payloads.
 - [ ] Distinguish run ID, attempt ID, candidate ID, plan ID, physical position, Reel UUID and command ID; specify enums and legal transitions.
 - [ ] Specify canonical digest inputs and normalization: content/version identity, QR exactness, TEXT semantics, positions, target context and indexing; exclude signed URLs/tokens.
 - [ ] Add synthetic/golden fixtures: valid and incomplete schema-v2 Reel documents, multiple named DUST slots, duplicate identity/path, unsafe path, reverse mapping and partial capture.
-- [ ] Add fake HTTP/object-store/runner adapters plus deterministic clock and fault injection. Mocks must not be mistaken for cloud or scientific qualification.
+- [ ] Add fake native/helper, HTTP/object-store/runner adapters plus deterministic clock/fault injection, including malformed/oversized IPC, helper restart and delayed start responses. Mocks must not be mistaken for cloud, camera or scientific qualification.
 - [ ] Establish focused CI for changed components; normal test runs require no camera, AWS, APID key or access to protected reference files.
 
-**Acceptance:** Python/TypeScript consumers interpret golden identities/digests consistently; invalid fixtures fail with stable machine codes.
+**Acceptance:** TypeScript/Rust/Python consumers interpret shared golden identities/digests consistently; invalid fixtures and incompatible helper messages fail with stable machine codes.
 **Not included:** all future routes/tables, a new UI framework or a deployed service.
 
 ### S02 - Make fresh stitcher executions trustworthy
@@ -305,19 +307,20 @@ TODO:
 
 ### S10 - Browse and process cloud runs from the desktop
 
-**Outcome:** the first useful desktop feature works without a camera or enrollment permission.
-**Depends on:** S09. **Area:** Desktop `pipeline/client.py`, controller and Runs panel.
+**Outcome:** the first useful Tauri desktop feature works without a camera, helper runtime or enrollment permission.
+**Depends on:** S10b (inherits S09 and S10a); start S10a after S01. **Area:** proposed `apps/desktop/src/` and native `src-tauri/src/{commands,auth,workflow}/`.
 
 TODO:
-- [ ] Add workflow endpoint/project selection and reuse browser/PKCE sign-in; implement expiry/refresh or clear re-login using OS credential storage.
+- [ ] S10a: create the minimal Tauri v2/bundled web UI, typed mock/native bridge, explicit custom-command/window permissions and CSP; test denied generic shell/file/URL access and a Windows/WebView2 smoke bundle. Do not scaffold every future screen.
+- [ ] S10b: add allowlisted Workflow endpoint/project selection and native system-browser/PKCE login; validate callbacks and implement expiry/refresh or clear re-login through OS credential storage. Never expose tokens to the renderer/helper.
 - [ ] Add Runs list, existing-S3 import action and run detail, including input status, profile, attempt history and capture-loss uncertainty.
 - [ ] Wire Start Processing/Cancel/status polling to the real Workflow API; preserve command IDs across retries and cache only rebuildable cloud state.
 - [ ] Show accurate queue/phase/error states, not guessed percentage from log lines; reconnect after network loss/app restart.
-- [ ] Keep HTTP and disk work off the Qt thread, bound image/list memory, and allow cloud-only use without connected camera.
+- [ ] Keep HTTP/disk work in asynchronous native services, bound renderer list/image memory, and allow cloud-only use with missing helper/Vimba/camera. Render only bundled application code with native privileges.
 - [ ] Test slow/failing API, expired credentials, repeated clicks, restart, denied projects and UI responsiveness with a large fake run list.
 
-**Acceptance:** operator imports/selects a run, launches processing and sees the same durable attempt after reopening the app.
-**Not included:** enrollment controls, a local Rust sidecar or redesigning existing camera controls.
+**Acceptance:** S10a/S10b pass; operator imports/selects a run, launches processing and sees the same durable attempt after reopening the Tauri app. Core UI can be tested with fake native adapters.
+**Not included:** enrollment or camera controls (S20a), live capture, a local stitcher or browser-hosted deployment.
 
 ### S11 - Review physical labels and resolve findings
 
@@ -417,19 +420,22 @@ TODO:
 
 ### S17 - Seal new captures safely
 
-**Outcome:** the hardware app produces a trustworthy input inventory without blocking acquisition.
-**Depends on:** S01. **Area:** Desktop `capture/writer.py`, `capture/runner.py`, `pipeline/seal.py`.
+**Outcome:** the supervised Python capture helper produces a trustworthy inventory without blocking acquisition.
+**Depends on:** S17b (inherits S17a, S01 and S10a). **Area:** approved `labeltron-two` working branch `capture/{writer,runner,seal}.py` and `headless/`; Tauri `src/capture/` supervisor. Do not change `reference/`.
 
 TODO:
-- [ ] Assign stable local run ID and capture metadata before frames arrive; preserve current naming/layout and camera recipes.
+- [ ] S17a: wrap existing `BurstRunner`/`RunRequest`, typed capture callbacks, camera protocol/simulator, runtime and preflight with a headless versioned pipe protocol; stdout is protocol-only, stderr is redacted logs. No cloud credentials or upload worker in Python.
+- [ ] S17a: add Rust fixed-executable supervision, handshake/version checks, single camera/run ownership, start-intent/status reconciliation, bounded messages/preview metadata, simultaneous pipe draining, stop/EOF/exit timeouts and Windows process cleanup. Never replay an unknown start blindly.
+- [ ] S17a: build a pinned target-specific helper with PyInstaller and smoke-test the simulator/preflight through Tauri on Windows without user-installed Python. Keep existing CLI/Qt and golden tests passing; missing helper/runtime must not block cloud review.
+- [ ] S17b: assign stable local run ID and capture metadata before frames arrive; preserve current naming/layout and camera recipes.
 - [ ] Write temporary image files then atomically rename; ignore unfinished files in discovery and record write failures.
 - [ ] Replace timed-join-as-success with a real flush/stopped barrier, including relevant QR jobs; expose timeout/interrupted states.
 - [ ] Record ordered files, encoded-byte digests, timestamps/settings and saved/dropped/failed counters without blocking the acquisition callback.
 - [ ] Atomically publish a sealed capture manifest; add explicit recovery inventory for a crashed unsealed run and safe path/symlink validation.
-- [ ] Test simulator capture, slow disk, queue overflow, disk full, Unicode paths, shutdown timeout and crash between file/manifest writes; retain existing golden camera tests.
+- [ ] Test simulator capture, slow disk, queue overflow, disk full, Unicode paths, protocol mismatch, malformed/oversized output, helper/native crash, duplicate start, blocked stderr/stdout, EOF/stop timeout and crash between file/manifest writes; retain existing golden camera tests.
 
-**Acceptance:** sealed manifests enumerate only complete exact files; unfinished or uncertain capture cannot silently become ready to process.
-**Not included:** changing trigger behavior, burst-to-label assumptions, stitching or cloud uploads.
+**Acceptance:** S17a/S17b pass; helper closure and Stop acknowledgement cannot fake a seal. Sealed manifests enumerate only complete exact files; uncertain capture is needs-attention, never ready to process.
+**Not included:** changing trigger behavior, burst-to-label assumptions, capture web controls (S20a), stitching or cloud uploads.
 
 ### S18 - Add checksum-aware signed uploads and completion
 
@@ -450,10 +456,10 @@ TODO:
 ### S19 - Persist and resume desktop uploads
 
 **Outcome:** a station restart does not force a complete re-upload or hide corruption.
-**Depends on:** S10, S17, S18. **Area:** Desktop `pipeline/local_store.py`, `pipeline/uploads.py` and upload UI.
+**Depends on:** S10, S17, S18. **Area:** Tauri native `src/storage/` (SQLite and streaming transfers) and web upload UI.
 
 TODO:
-- [ ] Add SQLite migrations for local run registration, per-file digest/version receipt, retry state and persisted command IDs; separate authoritative local capture data from cloud cache.
+- [ ] Add Rust-owned SQLite migrations for local run registration, per-file digest/version receipt, retry state and persisted command IDs; separate authoritative local capture data from cloud cache. Python publishes sealed manifests; neither helper nor renderer writes this DB.
 - [ ] Stream sealed frame bytes through bounded workers and just-in-time URL batches; checkpoint after validated responses and preserve request/header separation for S3.
 - [ ] On restart, reconcile unconfirmed transfers with backend receipts instead of assuming an interrupted PUT either succeeded or failed.
 - [ ] Refresh operator credentials/URLs safely, retry transient errors with backoff, and implement pause/cancel between files without deleting local raw evidence.
@@ -465,34 +471,36 @@ TODO:
 
 ### S20 - Connect fresh capture to the complete operator journey
 
-**Outcome:** an operator completes a new run without command-line tools.
-**Depends on:** S16, S19. **Area:** Desktop run coordinator and existing workflow routes.
+**Outcome:** an operator completes a new run through Tauri web controls without command-line tools.
+**Depends on:** S20b (inherits S20a, S16, S19; S20a depends on S10 and S17). **Area:** web capture screens, native/helper bridge and existing Workflow routes.
 
 TODO:
-- [ ] Add New Run dialog with authorized project/profile, printed reel display metadata and capture requirements; preserve capture-only/offline operation.
+- [ ] S20a: implement web camera selection/preflight, supported exposure/gain/settings, preview, capture mode and start/status/stop controls over the retained engine. Preserve supported behavior and loss counters; use simulator/golden evidence rather than new hardware recipes.
+- [ ] S20a: use bounded/downsampled preview cache with native-scoped opaque handles; no raw arrays/base64 firehose through JSON. Test preview saturation, renderer reload, second-instance ownership and close/cancel/stop-and-flush without silently completing a run.
+- [ ] S20b: add New Run dialog with authorized project/profile, printed reel display metadata and capture requirements; preserve capture-only/offline operation.
 - [ ] Wire captured -> sealed -> upload -> verified -> process using existing IDs; distinguish local run from cloud run registration and attempt history without duplicating entities.
 - [ ] Add optional auto-process only after verified upload; enrollment always requires review, frozen target/positions and real-write confirmation.
 - [ ] Make every stage's actionable error lead to the appropriate retry/review screen; reconnect to the same run after app restart.
 - [ ] Keep capture priority while older jobs run in the cloud; show that closing the UI does not undo cloud work or receipts.
 - [ ] Demonstrate a simulator/synthetic journey and an approved real small-run journey including offline capture and later upload.
 
-**Acceptance:** one new run reaches a reconciled result through the UI with unchanged raw evidence and no clid/local shell dependency.
-**Not included:** rescan segment merging, automatic partial-Reel approval or a new hardware UI.
+**Acceptance:** S20a/S20b pass; new web controls preserve supported capture behavior and one run reaches a reconciled result with unchanged raw evidence, no clid and no operator shell commands.
+**Not included:** hardware-driver/trigger redesign, rescan segment merging or automatic partial-Reel approval.
 
 ### S21 - Package and upgrade the Windows application
 
-**Outcome:** the supported station can install/run/upgrade without a developer environment.
-**Depends on:** S20. **Area:** Desktop packaging/release.
+**Outcome:** the supported station installs/runs/upgrades Tauri and the capture helper without user-installed Python, Node or Rust.
+**Depends on:** S21b (inherits S21a and S20). **Area:** Tauri bundle and Python-helper packaging/release.
 
 TODO:
-- [ ] Extend existing PyInstaller/Inno configuration for new modules/credential backend; do not bundle clid or a Windows stitcher.
-- [ ] Preserve Vimba runtime/licensing preflight and camera-optional cloud review; verify Unicode user paths and documented supported Windows versions.
-- [ ] Add signed artifact/release verification with the approved signing owner; pin dependency/runtime versions and collect notices/SBOM.
-- [ ] Test install/upgrade with populated SQLite/cache/run folders; migrate safely and define supported rollback behavior without destroying data.
+- [ ] S21a: build a Tauri Windows installer (NSIS proposed; MSI only if required) with pinned PyInstaller headless helper via `bundle.externalBin`, correct target suffix/resources/native DLLs. Reuse licence/preflight findings from the old packaging, not the Inno UI installer. No clid or Windows stitcher.
+- [ ] S21a: qualify WebView2 bootstrap/offline provisioning and patch ownership, plus Vimba prerequisites/licensing separately. Test cloud-only review with missing camera/Vimba and supported Unicode paths/Windows versions.
+- [ ] S21b: sign/verify host, helper and installer as applicable with the approved signing owner; pin runtime/core/protocol versions and collect notices/SBOM. Reject helper/host version mismatch before camera commands.
+- [ ] S21b: test existing Qt-app settings/capture import and install/upgrade with populated SQLite/cache/run folders. Preserve raw data, prevent concurrent camera ownership, migrate safely and define supported nondestructive rollback.
 - [ ] Include diagnostic export with secret redaction and a version/context header, plus a safe feature-disable path.
-- [ ] Run clean-machine smoke tests with/without camera/runtime and record the full small-run installer demo.
+- [ ] Run clean-Windows smoke tests without a developer toolchain, with/without WebView2/camera/Vimba, offline prerequisites as required, and packaged helper exit/restart; record the full small-run installer demo.
 
-**Acceptance:** the signed installer works on a clean supported station and an upgrade preserves active run/upload/enrollment references.
+**Acceptance:** S21a/S21b pass; signed installer works on a clean supported station and an upgrade preserves active run/upload/enrollment references.
 **Not included:** fleet auto-update service, cross-platform camera support or destructive rollback migrations.
 
 ### S22 - Prepare production operations and capacity
@@ -517,11 +525,11 @@ TODO:
 **Depends on:** S21, S22. **Area:** cross-component acceptance harness and release candidate.
 
 TODO:
-- [ ] Kill/restart the desktop during writing, upload, review and enrollment display; verify no unsealed input or stale approval advances.
+- [ ] Kill/restart the webview, native host and Python helper independently during writing/upload/review; test EOF, orphan prevention, duplicate starts and preview backpressure. No unsealed input or stale approval advances; cloud enrollment remains independent of the renderer.
 - [ ] Kill scheduler/worker or the stitcher runtime at each persistence boundary, including unavailable scratch storage and partial artifact publication.
 - [ ] Inject APID commit-then-disconnect, extraction failure, prolonged 429, revoked credentials and duplicate operators; prove unchanged intents and conflict handling.
-- [ ] Attempt cross-project artifact access, unauthorized approval, forged Team/Reel/image choice, path escape and secret leakage in diagnostic/CSV export.
-- [ ] Test installer upgrade with an active upload/plan plus service/schema version compatibility; reject unsupported contract versions explicitly.
+- [ ] Attempt cross-project access, unauthorized approval, forged Team/Reel/image choice, path escape and diagnostic/CSV secret leakage; test remote-origin/native-command denial, generic-shell attempts, compromised preview handles and token absence from renderer/helper.
+- [ ] Test Tauri/helper upgrade with an active upload/plan plus WebView2, helper protocol and service/schema compatibility; reject unsupported versions explicitly and preserve the legacy capture data.
 - [ ] Record each scenario's observed DB/S3/APID state and recovery instructions; resolve all release-blocking failures before physical pilot approval.
 
 **Acceptance:** no tested failure loses raw evidence, silently changes positions, bypasses approval or marks uncertain APID state completed.
@@ -575,6 +583,6 @@ A feature moves into the initial scope only with an explicit decision, revised d
 - [ ] Complete S00's decision sheet, especially required DUST slots, serial source, physical positions, indexing and operated cloud runtime.
 - [ ] Confirm repositories/owners and where approved non-secret fixture copies will live.
 - [ ] Select S01 as the first code slice after S00; do not start the entire service/UI in one change.
-- [ ] Queue S02, S05 and S17 after S01 as independent engine, backend and desktop tasks; run S04 early once the engine/fixtures are trustworthy.
+- [ ] Queue S02, S05 and S10a after S01 as independent engine, backend and shell tasks; start S17a after S10a. Run S04 early once engine/fixtures are trustworthy; do not defer helper packaging proof until S21.
 
 For each future slice handoff, record: `owner`, `status`, `dependencies passed`, `scope`, `PR(s)`, `test evidence`, `demo`, `known limitations`, `reviewer`. All current implementation statuses remain **not started**.

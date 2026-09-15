@@ -6,9 +6,20 @@ Planning and implementation workspace for an end-to-end Labeltron workflow:
 Capture -> verified S3 upload -> Rust stitching -> review -> approve -> APID enrollment -> reconcile/report
 ```
 
-The proposed design extends the existing Windows/PyQt6 application, reuses
-`dustid/labeltron-two-stitcher`, and enrolls through direct APID HTTP calls.
-It does not bundle or invoke `clid`.
+The selected desktop direction is **Tauri + a bundled web UI**, retaining the
+existing Python camera/capture engine as a supervised local helper. Tauri v2
+with React + TypeScript + Vite is the proposed implementation stack; the web
+framework is still to be confirmed.
+
+```text
+Bundled web UI -> Tauri native Rust host -> Python capture helper -> camera
+                         |
+                         +-> cloud Workflow -> S3 / Rust stitcher / APID
+```
+
+The native host owns credentials, scoped commands and uploads; Python owns
+capture/sealing. The proposed cloud pipeline reuses `dustid/labeltron-two-stitcher`
+and direct APID HTTP calls. No `clid` or local Windows stitcher is bundled.
 
 ## Documents
 
@@ -24,7 +35,8 @@ Application implementation has not started. The backlog begins with **S00:
 lock the pilot scope and unblock access**. Required decisions and approved
 nonproduction fixtures/access must be resolved before starting S01.
 The [S00 decision sheet](plans/S00-pilot-scope.md) is being reviewed on
-`slice/s00-pilot-scope`; no prerequisite has been marked complete.
+`slice/s00-pilot-scope`. The desktop-shell/capture-reuse decision is confirmed;
+remaining scope, framework, environment and access decisions still block S00.
 
 Use a separate branch for each slice. Keep tests, review evidence, and scope
 changes with that slice; do not mark proposed or mocked behavior as validated.

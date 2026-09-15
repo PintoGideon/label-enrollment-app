@@ -9,7 +9,7 @@ The requested capture/cloud-sync URLs are two branches of the same repository. T
 | Repository / branch | Full reviewed commit | Local path | Role |
 |---|---|---|---|
 | [dustid/labeltron-two · jhodges/cloudsync](https://github.com/dustid/labeltron-two/tree/jhodges/cloudsync) | `e40522bbc619237b95ae8721b44861e960917d81` | `reference/labeltron-two` | Capture, cloud login and upload implementation |
-| [dustid/labeltron-two · jhodges/wininstaller](https://github.com/dustid/labeltron-two/tree/jhodges/wininstaller) | `50cf335bc25fa9bef28bb7f46265253935bffd65` | `reference/labeltron-two--wininstaller` | Recommended base/release branch |
+| [dustid/labeltron-two · jhodges/wininstaller](https://github.com/dustid/labeltron-two/tree/jhodges/wininstaller) | `50cf335bc25fa9bef28bb7f46265253935bffd65` | `reference/labeltron-two--wininstaller` | Capture-core/packaging reference; not the new Tauri installer |
 | [dustid/labeltron-two-stitcher · main](https://github.com/dustid/labeltron-two-stitcher) | `d78c82d9cc6ab0ac54f9dfe9a997a8fe6547effa` | `reference/labeltron-two-stitcher` | Actual Rust algorithm, manifests, cloud execution |
 | [dustid/clid · main](https://github.com/dustid/clid) | `aa44cbfa396f45c329d751b68f7adaca33c62f66` | `reference/clid--review` | Reference implementation of APID calls and response validation; **not a shipped component** |
 | [dustid/apid · main](https://github.com/dustid/apid) | `c7d52b30b672bfd11fa2fa9b1a543d5097d5e495` | `reference/apid--review` | Server routes, request schemas, authorization and reconciliation |
@@ -35,6 +35,10 @@ Paths in this section are relative to `reference/labeltron-two`.
 | `src/labeltron/capture/writer.py:141–149` | `close()` joins with a timeout then clears its thread reference without asserting thread termination; sealing must not assume this proves a completed flush |
 | `src/labeltron/capture/writer.py:192–207` | Saved/failed counters and per-image write behavior |
 | `src/labeltron/capture/runner.py:224–238` | Run completion event follows writer close |
+| `src/labeltron/capture/runner.py::RunRequest`, `BurstRunner.run/stop` | Qt-free blocking core with callback events and cooperative stop; a headless wrapper can reuse it |
+| `src/labeltron/capture/events.py::FrameKept`, `RunFinished`, `EventRecorder` | Plain dataclass callbacks, including NumPy preview pixels; adapt/bound these for IPC, do not serialize raw arrays as JSON or treat completion as a seal |
+| `src/labeltron/camera/protocol.py`, `src/labeltron/camera/simulator.py` | `CameraSystem`/`CameraDevice` seam and `SimulatedCameraSystem`; preserve existing capture/golden behavior |
+| `src/labeltron/cli.py::make_system`, `command_capture`; `runtime.py`, `preflight.py` | Existing headless runtime/camera setup, core invocation and cleanup; CLI stdout is human-readable, not a versioned helper protocol |
 | `src/labeltron/cloud/sync.py:23–25,75–122` | 20 concurrent PUTs by default, paginated remote listing, presign batches of at most 500 |
 | `src/labeltron/cloud/sync.py:125–183` | One-way diff/upload flow; credentials kept out of the separate S3 HTTP client |
 | `src/labeltron/cloud/sync.py:149` | Remote object is skipped when `local_size <= remote_size`; no checksum comparison |
@@ -181,4 +185,18 @@ Not performed:
 - No S3 listing/download/upload, EKS Job submission, production API enrollment or deployment changes.
 - No validation of live bucket policy, ECR image contents, permissions, current endpoints, scan-service availability or reported throughput.
 
-Those are explicit phase-0/pilot tasks, not implied successes. The architecture and schedule remain recommendations pending that validation.
+Those are explicit phase-0/pilot tasks, not implied successes. Architecture details remain proposals where S00 has not recorded approval; the old Qt-based schedule must be re-estimated for Tauri/helper work.
+
+## 6. Tauri decision and integration references
+
+On 2026-09-15 EDT the user selected **Tauri + bundled web UI with the Python capture engine retained as a local helper**; see [S00](plans/S00-pilot-scope.md). This is a product decision, not a finding that the reviewed capture repository already contains a Tauri application. React/TypeScript/Vite remains a proposed frontend choice. The historical `PLAN.md` is still superseded: selecting Tauri does not reinstate its local Python stitcher or clid sidecars.
+
+The additional headless reuse findings above were checked against the same pinned capture source. No reference files were changed or added to this repository, and protected `manifests/` was not inspected.
+
+Official Tauri v2 documentation consulted for the revised design (accessed 2026-09-15; live docs, not a pinned dependency release):
+
+- [Embedding external binaries](https://v2.tauri.app/develop/sidecar/): `bundle.externalBin`, target-suffixed packaged executables and native Rust sidecar invocation. New helper framing/lifecycle code is still required.
+- [Capabilities](https://v2.tauri.app/security/capabilities/): window/webview permissions, custom-command exposure and limits; capabilities do not sandbox native Rust or fix unchecked handler arguments.
+- [Windows installer](https://v2.tauri.app/distribute/windows-installer/): Tauri NSIS/MSI bundles, WebView2 provisioning and Windows build considerations. Existing Inno packaging is not itself a Tauri installer.
+
+No Tauri scaffold/build, Windows helper bundle, IPC smoke test, WebView2 verification or new hardware test has been performed. These are explicit S10a/S17a/S20/S21 gates, not capabilities validated by documentation review.

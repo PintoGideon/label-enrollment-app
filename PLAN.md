@@ -1,6 +1,6 @@
 # Label Enrollment App — First Draft Plan
 
-> **Superseded — retained for historical context.** See [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md), [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) and [SOURCES.md](SOURCES.md) for the current source-reviewed proposal: the Rust `labeltron-two-stitcher`, verified S3 processing, and direct APID calls without clid. The Python-stitcher, CLI-sidecar and checkpoint assumptions below must not guide new implementation.
+> **Superseded — retained for historical context.** See [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md), [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) and [SOURCES.md](SOURCES.md) for the current source-reviewed proposal: the Rust `labeltron-two-stitcher`, verified S3 processing, and direct APID calls without clid. The Python-stitcher, CLI-sidecar and checkpoint assumptions below must not guide new implementation. The later Tauri/web-UI choice does **not** restore this draft: the current Python helper is capture-only, stitching stays in the proposed cloud pipeline, and clid is not bundled.
 
 **Original status:** draft for review. Written after reading `dustid/labs-toolkit` (main +
 `jhodges/apid-sdk-py`), `dustid/clid`, and `dustid/labeltron`.

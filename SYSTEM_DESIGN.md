@@ -1,6 +1,6 @@
 # Labeltron Enrollment - System Design
 
-**Proposed architecture, based on repository review.**
+**Tauri + web UI with a retained Python capture engine selected; cloud deployment and remaining pilot decisions are still proposals.** See [S00](plans/S00-pilot-scope.md).
 
 Detailed implementation plan: [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md).
 Slice-by-slice TODOs and dependencies: [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md).
@@ -21,7 +21,8 @@ One desktop experience, with different responsibilities on the station and in th
                                     cloud orchestration
 ```
 
-- Extend the existing Python/PyQt6 Labeltron app; do not rewrite the camera UI.
+- Build a Tauri v2 shell with a bundled web UI (React/TypeScript/Vite proposed); replace the Qt presentation layer.
+- Reuse the Python camera/capture core in a supervised helper; preserve camera recipes and simulator/golden behavior. Native Rust owns credentials, IPC, cloud HTTP and the upload journal.
 - Run the existing Rust/OpenCV stitcher as a cloud job, near S3.
 - Add a workflow backend for jobs, review, approval, progress and recovery.
 - Its enrollment worker calls APID directly. No clid executable or CLI parsing.
@@ -41,34 +42,25 @@ Legend:
 ## 2. End-to-end deployment diagram
 
 ```text
-+-------------------------------- WINDOWS STATION --------------------------------+
-|                                                                                 |
-| [E] Labeltron hardware                                                           |
-|     Alvium camera + gap sensor                                                  |
-|                 | USB / frames                                                  |
-|                 v                                                               |
-| +-------------------------- Labeltron Desktop --------------------------------+ |
-| |                                                                            | |
-| | [E] Capture UI + controller + camera adapter                                | |
-| |                       |                                                    | |
-| |                       v                                                    | |
-| | [H] Background writer ---> Local raw frames                                 | |
-| |                       |             |                                      | |
-| |                       v             v                                      | |
-| | [N] Flush + seal ---> capture-manifest.json                                  | |
-| |                       |                                                    | |
-| | [N] Local SQLite      |     [H] Upload manager                               | |
-| |     - upload journal <------> verified file transfers                        | |
-| |     - command IDs     |     - retry / URL renewal / cancellation             | |
-| |     - cloud cache     |                                                    | |
-| |                       |                                                    | |
-| | [N] Runs / Review / Enroll / Results UI                                      | |
-| |     - lazy thumbnails and full-size inspection                              | |
-| |     - explicit destination + indexing                                      | |
-| |     - operator approval of immutable output revision                        | |
-| +---------------|------------------------|-----------------------------------+ |
-|                 |                        |                                     |
-+-----------------|------------------------|-------------------------------------+
+WINDOWS STATION
+
+ [N] Tauri v2 + bundled web UI
+     Capture / Runs / Review / Enroll / Results
+                  | typed commands / bounded events
+                  v
+ [N] Native Rust host
+     - scoped commands + helper supervisor
+     - operator credentials + cloud HTTP
+     - SQLite upload journal + command IDs + rebuildable cloud cache
+                  | versioned stdio                 ^ sealed inventory
+                  v                                 |
+ [N] Python capture helper -------------------------+
+     [E] camera/simulator + acquisition/QR
+     [H] writer -> atomic raw frames -> flush -> [N] sealed manifest
+          ^ USB frames from [E] Alvium + gap sensor
+
+ Native host: verified upload workers + authorized preview/artifact I/O
+                  |                        |
                   | HTTPS metadata         | signed PUTs: raw image bytes
                   |                        | (no AWS keys on the station)
                   v                        v
@@ -128,6 +120,35 @@ The API, scheduler, result importer and enrollment worker are roles in **one new
 
 Use the supplied EKS Job model if that infrastructure is operated already. Otherwise run the same container on Batch/ECS; do not build a Kubernetes platform merely to satisfy this diagram.
 
+### 2.1 Tauri-to-capture boundary
+
+```text
+ Bundled web UI                Native Rust host                 Python helper
+       |                            |                               |
+       |--- typed invoke ---------->|--- fixed bundled executable ->|
+       |                            |<-- version/session handshake --|
+       |                            |--- request ID + command ------>|
+       |                            |<-- response + bounded events --|
+       |<-- state / preview handle -|                               |
+       |                            |<-- redacted stderr logs -------|
+       |                            |                               |
+       |--- stop ------------------>|--- stop request -------------->|
+       |<-- stopping/flushing ------|<-- drain writer + QR ----------|
+       |                            |<-- camera cleanup + seal ------|
+       |<-- sealed or needs_action -|--- verify manifest + journal    |
+       |                            |                               |
+       | renderer reload            | helper/native crash or EOF    |
+       +--> reattach to host state  +--> unknown/unsealed; reconcile |
+                                        never blindly restart run
+```
+
+- Use bounded versioned JSON Lines over inherited pipes, not a public/local camera-control HTTP server. Parse typed messages, not CLI log text; concurrently drain stdout/stderr and reject incompatible versions.
+- Keep raw pixels on disk. The helper emits rate-limited preview metadata for a bounded preview cache; Rust validates opaque image handles and serves only scoped bytes. Dropping preview is allowed; affecting saved raw frames is not.
+- One helper owns a camera/run. Persist start intent, reconcile lost acknowledgements, and prevent duplicate starts after reload/restart. `RunFinished` or exit 0 alone is not proof of a sealed capture.
+- Normal app close stops and flushes local capture before exit; EOF/host death triggers bounded fail-safe shutdown. Forced termination leaves an unsealed run for recovery, not a success. Cloud processing/enrollment continues independently.
+- No generic shell/file/URL proxy or tokens in the renderer, and no cloud credentials in the helper. A capture helper is not a stitcher or APID worker.
+- Bundle the helper for the Windows target with Tauri; qualify WebView2, Python native DLLs, Vimba licensing and process-tree cleanup. Missing hardware/helper must not prevent cloud-only review. Details: [desktop implementation](DESKTOP_APP_PLAN.md#12-desktop-implementation-and-ux).
+
 ## 3. Control plane versus data plane
 
 Large images do not pass through the workflow API or its database.
@@ -135,7 +156,10 @@ Large images do not pass through the workflow API or its database.
 ```text
 CONTROL PLANE: small authenticated requests and durable state
 
- Desktop UI
+ Bundled web UI
+    | typed native commands; no bearer tokens
+    v
+ Tauri native host
     |
     +--> register run / request upload batch / commit sealed inventory
     +--> start processing / inspect progress / request retry or cancel
@@ -173,14 +197,16 @@ DATA PLANE: immutable bytes and content digests
                                                APID
 ```
 
+The Python helper owns capture files/sealing; the Rust host streams sealed files and owns the SQLite transfer journal. Full raw frames never cross the renderer/JSON control path, and Python is not a second uploader.
+
 Critical distinction: APID's Label-create route does not consume a whole S3 Reel manifest. The worker resolves the manifest, fetches the selected crop bytes and sends APID's supported multipart request.
 
 ## 4. Capture-to-S3 commit protocol
 
-A folder existing in S3 does not mean capture is complete.
+A folder existing in S3 does not mean capture is complete. The helper writes raw files/manifests; the Rust host performs the local journal/upload steps below. A stop response is not a seal acknowledgement.
 
 ```text
- CAMERA           CAPTURE WRITER         LOCAL STORE          WORKFLOW API       S3
+ CAMERA           CAPTURE HELPER         LOCAL STORE          WORKFLOW API       S3
    |                    |                     |                    |             |
    |--- frame --------->|                     |                    |             |
    |                    |-- encode bytes      |                    |             |
@@ -648,6 +674,9 @@ The exit-code issue was reproduced using an isolated stub: child exit 42 became 
                               v
                      Google browser + PKCE
                               |
+                  Tauri native token manager
+                     (OS credential storage)
+                              |
                          Google ID token
                               |
                               v
@@ -682,7 +711,9 @@ The exit-code issue was reproduced using an isolated stub: child exit 42 became 
 
 Google login and APID authentication are not interchangeable. Project authorization must constrain the backend's privileged actions; a request cannot choose an arbitrary Team, bucket, source URI or executable configuration.
 
-Record the approving operator separately from the executing service principal. Store any operator refresh credentials in Windows Credential Manager; do not log keys, bearer tokens or signed URL query strings.
+Record the approving operator separately from the executing service principal. Rust owns operator refresh credentials in Windows Credential Manager and validates the browser/PKCE callback; the renderer and Python helper do not receive tokens. Do not log keys, bearer tokens or signed URL query strings.
+
+Tauri uses bundled local assets, CSP and explicit custom-command/window permissions; remote reports/pages cannot acquire native capabilities. Rust still validates paths, command state and allowlisted API/artifact origins. Capability configuration is not a sandbox around native Rust. No generic shell/spawn or unrestricted filesystem access is exposed to the web UI.
 
 ## 11. S3 layout and version boundaries
 
@@ -742,7 +773,7 @@ Capture                  Desktop                          Desktop
 Raw archive              S3                               S3
 Stitching                Cloud Rust Job                   Cloud Rust Job
 Review/approval          Desktop + workflow backend       Desktop + workflow backend
-APID calls               Cloud enrollment worker          Python/httpx desktop worker
+APID calls               Cloud enrollment worker          Native Rust desktop worker
 Enrollment journal       PostgreSQL                       Local journal + cloud receipts
 APID secret/token        Cloud secret manager/memory      OS credential store/memory
 Cross-station ownership  Backend Reel lease               Backend Reel lease
@@ -786,7 +817,7 @@ The HTTP fields, immutable approval, explicit positions and reconciliation rules
      Signed Windows installer + monitoring + retention + full-Reel field pilot
 ```
 
-Each phase has detailed acceptance criteria in `DESKTOP_APP_PLAN.md`. The execution backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md), with 25 small slices, per-slice TODOs and dependency gates; it overlaps existing-S3 processing with capture/upload work. Do not enable automatic enrollment before verified inputs, qualified label association, immutable approval and failure-recovery behavior are demonstrated.
+Each phase has detailed acceptance criteria in `DESKTOP_APP_PLAN.md`. The execution backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md), with 25 parent slices and explicit Tauri/helper child gates. Start the S10a shell/fake-bridge proof after S01 and S17a packaged-helper proof after S10a; neither waits for the entire cloud-review UI. S20 adds capture web controls; S21 qualifies the Tauri/helper/WebView2 release bundle. Existing-S3 and capture/upload work still overlap. Do not enable automatic enrollment before verified inputs, qualified label association, immutable approval and failure-recovery behavior are demonstrated.
 
 ## 14. Decisions that change this diagram
 
@@ -798,4 +829,4 @@ Each phase has detailed acceptance criteria in `DESKTOP_APP_PLAN.md`. The execut
 6. Is enrollment verify-only or identifiable by default for this project?
 7. Are partial Reels allowed, or must every required label be resolved before approval?
 
-Recommended default: integrated Qt desktop, cloud processing and enrollment, one qualified profile first, explicit operator approval, no silent gaps and no clid dependency.
+Selected desktop direction: Tauri + bundled web UI with a retained Python capture helper. Proposed defaults still awaiting the relevant S00 approvals: React/TypeScript/Vite, cloud processing/enrollment, one qualified profile, explicit operator approval and no silent gaps. No clid dependency or local Windows stitcher is introduced.

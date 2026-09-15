@@ -1,6 +1,6 @@
 # Labeltron desktop enrollment — recommended design and implementation plan
 
-**Status:** proposal based on source-code review, not a production-validated design.
+**Status:** Tauri + web UI with a retained Python capture engine selected by the user; the remaining architecture is a proposal based on source-code review, not a production-validated design. See the [S00 decisions](plans/S00-pilot-scope.md).
 **Source baseline:** capture branches through September 2, 2026; stitcher and clid through September 14; APID through September 11. Exact commits and evidence: [SOURCES.md](SOURCES.md).
 
 **Architecture diagrams:** [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md).
@@ -10,20 +10,22 @@ This plan replaces the earlier design; `PLAN.md` is retained only as historical 
 
 ## 1. Recommendation
 
-**Extend the existing Labeltron Windows/PyQt6 app into an operator console, run the existing Rust stitcher in the cloud beside S3, and add a small durable workflow service that enrolls through APID's existing endpoints.**
+**Build a Tauri v2 desktop shell with a bundled web UI, retain Labeltron's Python camera/capture engine as a supervised local helper, run the existing Rust stitcher in the cloud beside S3, and add a durable workflow service that enrolls through APID's existing endpoints.**
+
+The user has selected Tauri + web UI and reuse of the Python capture engine. React + TypeScript + Vite is the recommended frontend stack, not yet a separately approved framework decision. A browser-hosted product and cross-platform camera support are not implied by this choice.
 
 The operator still gets one end-to-end desktop experience:
 
 > New run → capture → verified S3 upload → stitch → review → approve → enroll → reconcile/report.
 
-The desktop owns hardware and operator interaction. The backend owns long-running cloud jobs and durable enrollment. The stitcher owns image reconstruction. APID owns Label/Reel identity and DUST enrollment.
+The web UI owns presentation. Tauri's native Rust host owns scoped local commands, helper supervision, operator credentials, cloud HTTP and the upload journal. The Python helper owns camera access, capture, QR logging and sealed raw files. The backend owns long-running cloud jobs and durable enrollment. The cloud stitcher owns image reconstruction. APID owns Label/Reel identity and DUST enrollment.
 
 This split means:
 
 - Capturing never competes with stitching for workstation CPU, memory or disk.
 - Closing the desktop does not interrupt a cloud stitch or an approved enrollment.
 - A second authorized workstation can review an existing S3 run without downloading raw frames.
-- We reuse the existing Windows capture/installer and existing Linux stitcher container rather than porting either.
+- We reuse Python camera recipes, acquisition, simulator and writer logic, plus the Linux stitcher container. The web UI, helper protocol and Tauri installer are new work; the old PyQt/Inno installer is only a packaging/licensing reference.
 - The enrollment worker calls APID directly; it does **not** invoke clid, scand or an internal database.
 - No AWS access keys, Kubernetes credentials or enrollment service-account key need to be installed on the station.
 
@@ -42,6 +44,8 @@ Existing components:
 - Browse and Cloud tabs, YAML settings, preflight diagnostics.
 - Google desktop OAuth/PKCE login and presigned S3 uploads.
 - PyInstaller/Inno Setup Windows packaging.
+
+These describe the **existing** app, not the selected desktop shell. `capture/runner.py::BurstRunner`, callback events in `capture/events.py`, `camera/protocol.py`, `camera/simulator.py`, `runtime.py` and `preflight.py` provide a headless reuse seam. The current `cli.py` already calls that core without Qt, but prints human-readable output; it is not the new IPC protocol. Preserve core behavior and golden camera tests rather than translating the hardware engine to Rust or JavaScript.
 
 The capture layouts are:
 
@@ -120,37 +124,43 @@ APID provides Collection/Reel creation, explicit positions, Label enrollment, du
 ## 3. Architecture and technology choices
 
 ```text
-WINDOWS STATION                       CLOUD
-┌──────────────────────────────┐
-│ Extended Labeltron / PyQt6    │
-│ Capture + browse + review    │
-│ Local SQLite upload journal │
-└──────────────┬───────────────┘
-               │ HTTPS: identity, runs, progress, approval
-               ▼
-       ┌─────────────────────────────────────────┐
-       │ Workflow API + scheduler + enroll worker│
-       │ TypeScript; one service/codebase        │
-       │ PostgreSQL jobs, leases, audit, outbox   │
-       └─────┬───────────────────────┬───────────┘
-             │ start/reconcile Job   │ direct authenticated HTTP
-             ▼                       ▼
-       Rust stitcher Job            AuthD + APID
-       existing Linux image         Collections / Reels / Labels
-             ↕                       ↑ crop bytes
-       S3 raw / assets / results ────┘
-             ↑
-       presigned uploads from station
+WINDOWS STATION
+  Tauri v2 + bundled web UI (React/TypeScript/Vite proposed)
+             | typed commands / bounded events
+             v
+  Native Rust host --------------------> Python capture helper
+  - helper supervision                   - existing camera/simulator
+  - OS credentials + cloud HTTP          - acquisition + QR + writer
+  - SQLite upload journal                - flush + sealed raw files
+             |                                     |
+             +<------- immutable inventory --------+
+             |
+             | HTTPS: identity, runs, progress, approval
+             v
+CLOUD
+  Workflow API + scheduler + enrollment worker (TypeScript)
+  PostgreSQL jobs, leases, audit, outbox
+             |                            |
+             | launch/reconcile           | direct authenticated HTTP
+             v                            v
+  Rust/OpenCV stitcher job             AuthD + APID
+  existing Linux image                 Collections / Reels / Labels
+             |                            ^ crop bytes
+             v                            |
+  S3 raw / assets / results ---------------+
+             ^
+             +---- signed streaming uploads from native host
 ```
 
 | Concern | Choice | Reason |
 |---|---|---|
-| Desktop | Extend Python/PyQt6 on `wininstaller` | Existing hardware behavior, simulator and installer are valuable and risky to rewrite |
+| Desktop shell | Tauri v2 + bundled web UI; React/TypeScript/Vite proposed | Selected product direction; native host isolates filesystem, process and credential access from the renderer |
+| Local capture | Headless Python helper reusing `labeltron-two` core | Preserve camera behavior and simulator/golden tests; a versioned IPC adapter is new work |
 | Cloud algorithms | Keep Rust/OpenCV container | Correct repository and existing deployment path; independent release/versioning |
 | Workflow backend | TypeScript HTTP service and workers | Fits the surrounding APID/upload-service ecosystem; typed OpenAPI client where practical |
 | Cloud state | PostgreSQL, with transactional outbox and leased jobs | Durable run/approval/row state; no need for separate Redis and SQS in the first version |
 | Job execution | Existing EKS Job model **if that platform is operated already** | Reuse the supplied infrastructure; see alternative below |
-| Local persistence | SQLite plus immutable run manifests | Transactional upload resume/cache; not a competing cloud source of truth |
+| Local persistence | Rust-owned SQLite plus Python-written sealed run manifests | One upload-journal writer; renderer/helper do not share writable DB access; cloud state remains authoritative |
 | APID integration | Small typed direct-HTTP adapter | No shell commands or CLI-output parsing |
 | Artifact storage | Private S3, versioned references and content digests | Durable, auditable input/output and efficient remote review |
 | Progress | Polling initially; resumable SSE later | Simple recovery; no requirement for a persistent desktop connection |
@@ -159,15 +169,17 @@ Do not create a microservice per pipeline stage. API, scheduler, importer and en
 
 **If EKS is not actually available, use the same container on AWS Batch/ECS rather than introducing a Kubernetes platform just for this app.** Infrastructure availability is a phase-0 decision; the desktop/API contract does not change.
 
-### Why not a new Electron/Tauri app first?
+### Selected Tauri boundary
 
-Both can work for a standalone enrollment client. Neither removes the camera dependency or native algorithm integration, and a camera-UI rewrite offers little workflow value. Choose Tauri/React later if a separate cross-platform review product is a genuine requirement. Rust in the stitcher alone is not a reason to replace a functioning Qt capture interface.
+The earlier Qt-extension recommendation is superseded by the user's Tauri/web-UI decision. Replace the presentation layer, **not** the camera driver, trigger recipes or cloud stitcher. The Python helper is for capture, not a local stitcher or clid wrapper.
+
+This adds real scope: a packaged headless helper, versioned IPC, bounded preview delivery, native process lifecycle, web UI capture controls and WebView2-aware installation. Prove a minimal Tauri shell with a fake helper and then a packaged simulator helper early after S01, rather than discovering Windows packaging problems at release. See the S10/S17 child gates in [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md).
 
 ## 4. Operator journey
 
 1. **Sign in / preflight.** Show camera, disk, cloud connectivity and destination-access status separately. Permit capture when cloud services are unavailable.
 2. **New run.** Choose project, label profile, printed reel number and, if known, expected count/range. Record station/operator and camera settings. Assign a UUID independent of the folder name.
-3. **Capture.** Existing camera interaction. Show received, saved, dropped and failed counts. Stop acquisition, flush writers, then explicitly seal the capture.
+3. **Capture.** Web controls invoke the retained Python engine through Tauri; preserve validated camera settings and acquisition semantics. Show received, saved, dropped and failed counts. Stop acquisition, flush writers, then explicitly seal the capture.
 4. **Upload.** Resume verified object transfers to S3. “Uploaded” means every sealed input is verified, not “folder exists.”
 5. **Process.** Select a versioned approved profile and start stitching; optional auto-start after verified upload. Show queue and per-phase progress.
 6. **Review.** Display reconstructed labels, required crop slots, serial/QR, direction, source frames and warnings. Filter to exceptions; inspect first/last labels and samples across the reel.
@@ -673,7 +685,7 @@ Treat these as linked stage states, not one linear status flag that cannot repre
 
 ### Screens
 
-1. **Capture:** existing controls plus project/run header and durable loss counters.
+1. **Capture:** new web controls over existing camera/capture operations, with project/run header and durable loss counters. Reproduce approved exposure/gain, preview, mode, start/stop and simulator behavior; do not retune the hardware recipes.
 2. **Runs:** unified local/cloud list; stage badges, profile, count, owner, last update; resume/import actions.
 3. **Run detail:** capture inventory, S3 verification, attempt history, direction and stage timeline.
 4. **Review:** virtualized label table/grid, exception filters, full-resolution crop and raw-neighbor drill-down, selected identifier slots, serial/QR provenance, position mapping.
@@ -685,27 +697,43 @@ Use legible status text as well as color. Keep irreversible actions explicit. A 
 
 ### Code organization
 
-Proposed additions to `labeltron-two`:
+Proposed desktop layout in this repository; the Workflow backend's repository remains an S00 decision. These are future paths, not existing/scaffolded modules:
 
 ```text
-src/labeltron/
-  pipeline/models.py             # run/attempt/plan contracts
-  pipeline/service.py            # Qt-free command/state coordination
-  pipeline/client.py             # workflow HTTP + reconnect
-  pipeline/local_store.py        # SQLite migrations and upload journal
-  pipeline/seal.py               # atomic capture inventory
-  pipeline/uploads.py            # verified transfer/resume
-  pipeline/review.py             # candidate/approval validation
-  ui/panels/runs_panel.py
-  ui/panels/review_panel.py
-  ui/panels/enrollment_panel.py
+apps/desktop/
+  src/                           # web screens and typed native bridge
+  src-tauri/
+    src/commands/                # narrow validated application commands
+    src/capture/                 # helper supervisor + protocol + preview handles
+    src/auth/                    # browser/PKCE + OS credential storage
+    src/workflow/                # authenticated HTTP, polling, reconnect
+    src/storage/                 # SQLite, scoped files, verified uploads
+    capabilities/                # permissions for the bundled main webview
+    binaries/                    # generated target-specific helper, not Git data
+packages/contracts/              # schemas + TypeScript/Rust/Python golden fixtures
 ```
 
-Keep networking and disk work off the UI thread; bridge through the existing controller/worker-signal pattern. Do not grow `ui/main_window.py` into the pipeline engine.
+Build the capture helper from a pinned, approved `labeltron-two` working branch/package, not by importing `reference/` at runtime or copying that tree into Git. Proposed upstream additions are `src/labeltron/headless/` for the protocol wrapper and `src/labeltron/capture/seal.py` for sealing. The dependency/distribution arrangement and upstream owner must be confirmed in S00. Reuse `BurstRunner`, `RunRequest`, capture events, `CameraSystem`/`CameraDevice`, `SimulatedCameraSystem`, runtime/preflight and settings/layout code. Keep the existing CLI/Qt app working as regression clients of the shared core.
+
+Keep native HTTP, hashing, disk access and subprocess reads off the renderer and GUI event loops. Only the Rust host writes the local upload/command SQLite journal. The helper writes capture files and atomically publishes manifests; the host verifies them before registration/upload. Browser development uses fake native adapters, not an exposed camera-control HTTP server.
+
+### Native/helper protocol and lifecycle
+
+- Rust starts only the bundled, pinned helper executable with fixed arguments; do not expose generic shell/execute or arbitrary filesystem commands to JavaScript. Validate custom native commands and their window permissions explicitly; Tauri plugin scopes do not sandbox Rust code.
+- Use bounded versioned JSON Lines over inherited stdin/stdout for commands, responses and status events; reserve stderr for redacted logs and drain both streams concurrently. Include protocol/helper/core version handshake, request IDs, helper-session generation, run IDs, stable error codes and timeout/cancellation semantics. Reject incompatible versions and oversized/malformed messages.
+- Expose a small operation set: preflight, list/connect/disconnect camera, validated settings, preview start/stop, capture start/status/stop and helper shutdown. Adapt typed core callbacks; do not parse `labeltron-cli` log text or serialize `FrameKept.image` arrays into JSON.
+- Keep raw frames on disk. Rate-limit/downsample a separate bounded latest-frame preview cache; the renderer receives opaque scoped image handles, not arbitrary file paths. Drop preview work under pressure, never raw capture frames to satisfy UI throughput. Preview is not enrollment evidence.
+- Use one capture owner per camera/run. Persist a start intent before sending; a lost start response is unknown until status/session/run inventory is reconciled. Never blindly replay start after timeout or helper restart. A renderer reload reattaches to native state without spawning a second helper.
+- A Stop acknowledgement is not a seal: wait for acquisition stop, writer/QR drain, camera cleanup and validated manifest publication. Normal application close offers cancel or stop-and-flush before exit. Host loss/pipe EOF requests safe helper shutdown; bounded forced termination is a last resort and leaves the run unsealed/needs-attention. Verify Windows process-tree containment; never kill an unrelated camera process.
+- Cloud-only review works when the helper, camera or Vimba runtime is unavailable. Capture/upload stops or checkpoints when the native host exits; already approved cloud processing/enrollment continues. Do not claim UI closure implies local acquisition safely completed.
 
 Lazy-load thumbnails, fetch full crops on demand and cap caches. Current self-contained stitcher reports can reach gigabytes according to its documentation; do not use an embedded giant HTML report as the primary review screen. Keep it as an optional diagnostic artifact; generate smaller/link-based reports when needed.
 
-Retain current installer/camera preflight behavior. Add code signing, upgrade/rollback and SQLite migration tests. Cloud-only review must not require a connected camera; keep the existing runtime/licensing constraints for actual capture. No clid binary and no new local stitcher native stack in the recommended installer.
+### Windows packaging
+
+Use a Tauri Windows bundle (NSIS proposed; MSI only if required), with a target-specific PyInstaller-built **headless capture** executable via `bundle.externalBin` and any required runtime resources. Reuse the old packaging's dependency/licence and preflight findings, not its Inno installer as the Tauri entry point. Build and smoke-test on Windows; do not assume a macOS build proves camera DLL loading or child shutdown.
+
+Operators should not need Python, Node or Rust installed. Account for WebView2 bootstrap/offline provisioning and patch ownership, plus Vimba transport-layer prerequisites/licensing separately. Preserve existing YAML/capture paths through explicit import/migration; never silently delete the old app's data or permit simultaneous camera ownership. Sign the host/helper/installer as applicable, verify bundled helper/core/protocol compatibility and test upgrades/rollback with populated SQLite. Cloud-only review must survive missing camera/Vimba. No clid binary or local stitcher stack is bundled.
 
 ## 13. Required hardening found during review
 
@@ -734,10 +762,11 @@ See [SOURCES.md](SOURCES.md) for precise locations and the distinction between c
 
 ### Identity boundaries
 
-- **Operator:** retain Google desktop browser/PKCE login for upload/workflow access initially; validate tokens server-side and map authenticated identity to project permissions. An email/domain alone is not sufficient authorization to enroll into an arbitrary Team.
+- **Operator:** retain the Google system-browser/PKCE flow for upload/workflow access, implemented in the native host rather than depending on the old Qt cloud panel. Validate callback state/nonce and approved redirect/origin, handle expiry/re-login, and validate tokens/project permissions server-side. An email/domain alone is not sufficient authorization to enroll into an arbitrary Team.
 - **Enrollment worker:** team-scoped APID Service Account; key in a cloud secret manager, short-lived APID token in worker memory. Audit both initiating operator and executing service principal.
 - **S3/stitcher:** workload IAM role with read access to approved inputs/assets and write access to that job's output scope. No APID enrollment secret in the algorithm container.
-- **Desktop:** no cloud master keys. Store any operator refresh credentials in Windows Credential Manager. Desktop OAuth client secrets cannot be treated as confidential application secrets.
+- **Desktop:** no cloud master keys. Rust owns operator tokens and Windows Credential Manager access; do not put bearer/refresh tokens in JavaScript storage or pass them to the capture helper. Desktop OAuth client secrets cannot be treated as confidential application secrets.
+- **Webview/native boundary:** bundle UI assets for offline use, enforce CSP and explicit command capabilities for the trusted window, and deny remote content native access. Do not render diagnostic HTML in a privileged webview. Native handlers must enforce paths, command state and allowlisted API/S3 destinations themselves; CSP/capabilities are not a substitute for validation.
 
 Google upload login and APID identity are separate trust domains; do not forward a Google ID token to APID and expect it to work. A later AuthD operator login can unify the desktop experience only after upload/workflow audience and token-exchange policy are explicitly designed.
 
@@ -764,23 +793,24 @@ Keep database backups/PITR and protected S3 retention. Define separate retention
 
 | Architecture | Benefits | Costs / suitable use |
 |---|---|---|
-| **Recommended: Qt console + cloud stitching + cloud direct-APID worker** | Survives desktop exit, no raw re-download, centralized credentials/leases, reuse existing container | Requires workflow API/database and operated cloud compute |
-| Qt console + cloud stitching + desktop direct APID | No cloud enrollment worker initially; crop downloads are small | Station must remain online; desktop APID login/secret management; coordination needed to prevent duplicate operators |
-| Qt console + local Rust stitcher + direct APID | Local processing can work offline; low-latency access to originals | Windows OpenCV/contrib build and packaging; capture-resource contention; no automatic background continuation after desktop exit |
-| New Tauri/Electron client | Useful for a dedicated cross-platform enrollment/review product | Additional application to build/support; retain existing capture app or deliberately scope a hardware rewrite |
+| **Selected shell; recommended deployment: Tauri/web UI + Python capture helper + cloud stitching/enrollment** | Preserves capture core; cloud jobs survive desktop exit; centralized enrollment credentials/leases | New UI/IPC/helper packaging plus Workflow API/database and operated compute |
+| Tauri/web UI + Python capture helper + cloud stitching + native desktop APID worker | No cloud enrollment worker initially; crop downloads are small | Station must remain online; native APID auth/durable row recovery; prevent duplicate operators |
+| Tauri/web UI + Python capture helper + local Rust stitcher | Offline processing possible | Separate Windows OpenCV/stitcher qualification, resource contention; outside initial scope |
+| Extend existing Qt application | Smaller presentation/packaging change | Earlier recommendation, superseded by the user's Tauri choice; retain as a regression/reference client only |
 
-If choosing desktop-direct enrollment, implement the same APID adapter with `httpx`, use Windows credential storage and a durable local plan/row journal, and keep an exclusive backend Reel lease. Do not transfer responsibility by shipping clid. Online enrollment is still impossible while APID is unreachable.
+If choosing desktop-direct enrollment, port the same verified HTTP contract into a native Rust worker, use Windows credential storage and a durable local plan/row journal, and keep an exclusive backend Reel lease. Do not put APID credentials or enrollment logic in the renderer or camera helper. Do not transfer responsibility by shipping clid. Online enrollment is still impossible while APID is unreachable.
 
 Do not build cloud and local algorithm execution simultaneously for v1. Define the runner interface now and deliver the cloud adapter first; add local execution only for a proven requirement.
 
 ## 16. Delivery milestones and acceptance criteria
 
-The actionable backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md): 25 smaller slices with dependencies, TODO checklists, acceptance gates and exclusions. These milestones describe release outcomes; the slice plan defines execution order, including an existing-S3 path and parallel capture/upload work. No implementation has started.
+The actionable backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md): 25 parent slices, with explicit Tauri/helper child gates, dependencies, TODO checklists and exclusions. These milestones describe release outcomes; the slice plan defines execution order, including an existing-S3 path and parallel capture/upload work. No implementation has started.
 
-Indicative **8–12 weeks for a small experienced desktop/backend team**, assuming existing cloud infrastructure and timely domain-owner access. This is a sequencing estimate, not a commitment; unfamiliar infra or algorithm calibration can dominate it.
+The earlier **8–12 week estimate assumed Qt UI/installer reuse and is withdrawn**. Re-estimate after the early Tauri shell and packaged-helper proofs; new UI/IPC work, native packaging, infrastructure access and algorithm qualification are not yet sized.
 
-### M0 — Verify contracts and de-risk (about 1 week)
+### M0 — Verify contracts and de-risk
 
+- Prove the Tauri shell/fake bridge and Windows bundle early after S01; then qualify the packaged Python simulator/helper protocol and safe lifecycle before hardware integration.
 - Obtain approved representative raw runs and ground-truth label associations without modifying protected reference manifests.
 - Confirm actual deployed upload prefix, bucket, cloud compute, APID version/entitlements and scan-service availability.
 - Confirm profile, expected DUST slots, serial authority and Reel-position semantics.
@@ -790,7 +820,7 @@ Indicative **8–12 weeks for a small experienced desktop/backend team**, assumi
 
 **Exit:** known-good input → verified correct crop/QR/serial → direct APID enrollment → reported identifiers. No UI rewrite required to prove this.
 
-### M1 — Durable ingest and run registry (about 1–2 weeks)
+### M1 — Durable ingest and run registry
 
 - Desktop run IDs, flush/seal protocol, local upload journal and checksum-aware uploads.
 - Workflow auth/project mapping, PostgreSQL schema, outbox, existing-S3 import and state API.
@@ -798,7 +828,7 @@ Indicative **8–12 weeks for a small experienced desktop/backend team**, assumi
 
 **Exit:** interrupt capture/upload/app; reopen and recover without silently accepting missing or different bytes. Duplicate completion requests produce one run/processing intent.
 
-### M2 — Cloud processing orchestration (about 1–2 weeks)
+### M2 — Cloud processing orchestration
 
 - Pinned Job launch/reconciliation, staging validation, cancellation and resource caps.
 - Structured result importer/progress, immutable artifact publishing and quality classifications.
@@ -806,7 +836,7 @@ Indicative **8–12 weeks for a small experienced desktop/backend team**, assumi
 
 **Exit:** duplicate requests, failed child process, OOM and partial output upload cannot create a false successful result or duplicate active job.
 
-### M3 — Review and approval (about 1–2 weeks)
+### M3 — Review and approval
 
 - Run history, virtualized candidate grid, full-resolution/source drill-down.
 - Identity/position/required-slot checks, warning disposition and immutable approval digest.
@@ -814,7 +844,7 @@ Indicative **8–12 weeks for a small experienced desktop/backend team**, assumi
 
 **Exit:** a bad association or missing required crop is visibly blocked; reprocessing/editing cannot reuse stale approval.
 
-### M4 — Direct APID enrollment (about 2 weeks)
+### M4 — Direct APID enrollment
 
 - Typed auth/context, Collection/Reel selection, extraction and Label-create adapter.
 - Durable row/extraction checkpoints, pilot/remainder, bounded concurrency, pause/resume and conflict UI.
@@ -823,9 +853,9 @@ Indicative **8–12 weeks for a small experienced desktop/backend team**, assumi
 
 **Exit:** simulate a lost response after a server commit; resume resolves the original Label without duplication or changing positions. Existing compatible/conflicting enrollment scenarios are covered.
 
-### M5 — Production hardening and pilot (about 1–2 weeks)
+### M5 — Production hardening and pilot
 
-- Signed installer, supported Windows/camera tests, upgrades/rollback and credential renewal.
+- Web capture-control parity and integrated journey; signed Tauri/helper installer, WebView2/Vimba preflight, supported Windows/camera tests, upgrades/rollback and credential renewal.
 - Fleet/job caps, monitoring, backups/retention, security/authorization tests and runbook.
 - Complete a full real Reel, independently verify association quality and reconcile intended versus actual APID state.
 
@@ -835,7 +865,8 @@ Indicative **8–12 weeks for a small experienced desktop/backend team**, assumi
 
 | Layer | Essential tests |
 |---|---|
-| Capture | All existing simulator/golden behavior retained; Unicode Windows paths; disk full; writer timeout; crash before seal; dropped frames |
+| Capture | Existing simulator/golden core behavior retained; web-control parity; Unicode Windows paths; disk full; writer timeout; crash before seal; dropped frames |
+| Tauri/helper | Fake native adapter; protocol mismatch/malformed output; stdout/stderr backpressure; preview saturation; duplicate start; renderer reload; helper/native crash; EOF/stop/flush; camera owner exclusion |
 | Upload | Same-size changed object, larger stale remote object, expired URL, token expiry, >500 files, pagination, partial batch, restart, duplicate completion, attempted namespace escape |
 | Stitch runner | Child exit propagation; missing crop with exit 0; wrong orientation/profile; native crash/OOM; result upload failure; zero labels |
 | Checkpoints | Same filenames/different bytes, model/profile/image change, truncated JSONL repaired before append, no retained PVC, missing composite, repeated resume |
@@ -843,14 +874,14 @@ Indicative **8–12 weeks for a small experienced desktop/backend team**, assumi
 | Contracts | Golden schemaVersion-2 keyed manifests; optional/null fields; multiple DUST slots; multipart names/JSON strings; indexing wire values; unknown fields |
 | APID integration | Auth/Team mismatch, returned member mismatch, pilot/remainder, occupied position, already-enrolled DUST same/different Reel, transferred/bound Label, 429, extraction failure |
 | Recovery | Crash before send / after remote commit / before local response checkpoint; two workers; stale lease; server-created Reel response lost; stopped UI while cloud enrollment continues |
-| Security/UI | Unauthorized project/artifact access, forged destination, secret redaction, no UI-thread I/O, virtualized large lists, safe HTML/CSV rendering |
-| Release | Clean supported Windows install, Vimba missing/present, no camera review mode, credential expiry, schema migration, rollback without corrupting captured data |
+| Security/UI | Restricted custom commands/capabilities, CSP and remote-origin rejection; no generic shell/path/URL proxy; no tokens in renderer/helper; unauthorized project/artifact access, forged destination, secret redaction, responsive virtualized UI, safe HTML/CSV |
+| Release | Clean Windows without Python/Node/Rust, WebView2 missing/present/offline provisioning, packaged helper/host version mismatch, Vimba missing/present, no camera review mode, old-app data import, credential expiry, schema migration and nondestructive rollback |
 
 Algorithm correctness acceptance should be based on verified label↔QR↔DUST correspondence and false-association rate on a representative set, not a made-up aggregate confidence or a green process exit. Throughput targets follow M0 measurements.
 
 ## 18. Decisions to settle before implementation
 
-1. Is this one Windows operator app on the capture station, a separate enrollment workstation, or both? Recommended: extend Labeltron, with camera-optional cloud review.
+1. Tauri + web UI with retained Python capture is selected. Confirm React/TypeScript/Vite, the helper's upstream packaging/distribution home, and supported capture versus cloud-only station modes; Tauri does not itself qualify camera support.
 2. Is the supplied EKS/ECR setup deployed and owned, or should the same container run on Batch/ECS?
 3. Which label profiles ship first, and should the long label enroll one DUST crop or all three?
 4. Who supplies/version-controls the approved serial manifest? Is Vlink alias lookup an approved substitute?
@@ -861,8 +892,8 @@ Algorithm correctness acceptance should be based on verified label↔QR↔DUST c
 9. Can enrollment run under an audited Team-scoped worker Service Account, or must the individual operator's APID identity perform writes?
 10. Production retention, code-signing ownership, supported Windows versions and recovery/support responsibilities?
 
-### Suggested first implementation ticket
+### First code slice and early proofs
 
-**“From one existing S3 run, launch a pinned stitcher attempt, import a verified schema-v2 crop manifest, and enroll one approved label through direct APID HTTP.”**
+After S00 acceptance, start **S01: executable contracts, canonical identities/digests and safe fake adapters**, including the native/Python helper boundary. Then prove the Tauri shell in S10a and the packaged capture helper in S17a alongside engine/backend work.
 
-That vertical slice proves the actual interfaces. Then put the durable job/review experience around it—without rebuilding the camera app, replacing the stitcher, or shipping clid.
+S04 remains the early opt-in direct-APID proof after its inherited gates: a known approved S3 run -> pinned stitcher -> verified crop -> one nonproduction Label. Do not confuse that demonstration with the first code ticket or full product approval. Build the new presentation layer without rewriting camera recipes, replacing the stitcher, or shipping clid.
