@@ -10,13 +10,37 @@ This document is the execution-order and TODO reference. The other documents exp
 
 ## 1. How we will build
 
-1. Prove the existing stitcher/APID contracts before investing in the complete UI.
-2. Deliver a usable path for an **existing S3 run** first: import -> process -> review -> approve -> enroll -> report.
-3. Build capture sealing and reliable uploads in parallel, then connect fresh captures to the same pipeline.
-4. Keep each slice independently reviewable, with an observable demo and negative tests.
-5. Keep production enrollment disabled until the release and field-approval gates pass.
+1. **For each thin feature: backend -> API -> nonvisual frontend/client integration -> scripted proof -> UI.** This user-selected order supersedes the earlier shell-first proof sequence.
+2. Prove domain/state changes with unit tests, expose a validated API, wire a reusable typed client, then demonstrate the flow through scripts before adding its screen. Do not put essential behavior only in UI handlers.
+3. Deliver the **existing-S3 path** first: import -> process -> review -> approve -> enroll -> report. Repeat the same backend-first cycle per capability; do not build one giant backend before testing anything.
+4. Develop headless capture/sealing and upload APIs in parallel where dependencies allow. The Python helper and native command core must be scriptable without a Tauri window.
+5. Keep slices independently reviewable and production enrollment disabled until explicit release/field gates pass. Existing APID/stitcher code is not proof that the new Workflow backend is implemented.
 
 A slice should normally fit in a few focused engineering days and one or a few small PRs. If refinement reveals more than about three days of implementation, split it into child tickets before coding. Native builds, infrastructure access and scientific qualification are uncertain; these are sizing guidelines, not delivery promises.
+
+### Required delivery order within a feature
+
+| Phase | Deliverable | Gate before the next phase |
+|---|---|---|
+| B - Backend | Domain logic, durable state/migrations, jobs and adapters for this capability | Focused unit/component tests, failure semantics and ownership established |
+| A - API | Versioned HTTP routes or typed local IPC commands with authorization, validation and stable errors | Contract/integration tests against a running service or real helper protocol |
+| C - Frontend integration, no screens | Reusable typed API/native client, state mapping, reconnect/retry/cancel behavior | Same client/command core can run through a test-only headless harness |
+| T - Scripted proof | Repeatable acceptance script exercises that client and actual API/state boundary | Assertions pass; nonzero exit on failure; secret-free evidence records what is real versus fake |
+| U - UI | Tauri/web controls and evidence display over the proven client | UI smoke/error/accessibility tests plus regression of the same scripted flow |
+
+B and A have tests from the start; T is an additional end-to-end gate, not the first time we test. For backend-only work such as checkpoint repair, use the same backend/API-or-process/script gates and omit inapplicable UI work explicitly.
+
+**Example: run registry.** Persist run/command state -> expose create/list/detail routes -> implement a nonvisual run client -> script create, repeat the command, restart, retrieve the same run, and reject another project -> only then render the Runs screen.
+
+Planned acceptance scripts must:
+
+- Start/use the actual Workflow process and isolated PostgreSQL for durable-state scenarios; reach features through production HTTP/IPC clients, not direct DB mutation or a fake implementation of the new backend.
+- Use synthetic fixtures and controlled object-store/runner/APID/auth adapters in normal CI. Label these external dependencies as fakes; passing them does not qualify live S3, real stitching, APID or hardware.
+- Assert returned IDs/digests, persisted state and recovery, not just exit 0 or HTTP 200. Cover authorization, malformed input, duplicate commands, timeouts, partial results and relevant process restarts.
+- Keep tokens/private data out of logs and evidence. A test-only harness is not a shipped clid dependency, generic native shell command or camera-control HTTP server.
+- Require separate approved nonproduction credentials/targets and explicit opt-in for live writes, including extraction. Scripted approvals may be synthesized only for isolated synthetic fixtures; passing tests never auto-approves real label associations or production enrollment.
+
+No acceptance scripts or new backend exist yet; the above is an implementation requirement. See the readiness summary in [README.md](README.md#development-status).
 
 ### Initial scope, subject to S00 approval
 
@@ -48,9 +72,9 @@ The `reference/` checkouts remain ignored study material, never runtime imports,
 
 ## 3. Slice index and dependencies
 
-**S00 is in decision review**: Tauri/web UI with Python capture reuse is confirmed, but remaining required decisions/access are pending; see its [decision sheet](plans/S00-pilot-scope.md). **S01-S24 and all child tickets are not started.** Dependencies mean acceptance passed, not merely that code exists. Only S00 is ready for review now.
+**S00 is in decision review**: Tauri/web UI with Python capture reuse and the backend-first delivery order are confirmed; remaining required decisions/access are pending. See the [decision sheet](plans/S00-pilot-scope.md). **S01-S24 and all child tickets are not started.** Dependencies mean acceptance passed, not merely that code exists. Only S00 is ready for review now.
 
-Keep the 25 parent IDs stable. The child-gate table below splits the added Tauri/helper scope into smaller deliverables and permits early native proofs after S01. A parent passes only after its final child and inherited prerequisites pass.
+Keep the 25 parent IDs stable. Child gates separate backend/API/client/script readiness from UI completion; a downstream backend depends on the former, not on a screen. A parent passes only after its final child and inherited prerequisites pass. Parent numbers identify scope, not a mandatory serial execution order.
 
 | ID | Slice / observable outcome | Depends on | Area |
 |---|---|---|---|
@@ -65,58 +89,75 @@ Keep the 25 parent IDs stable. The child-gate table below splits the added Tauri
 | S08 | One cloud processing job with durable status and cancellation | S02, S03, S07 | Workflow / engine / platform |
 | S09 | Validated, immutable result artifacts and candidate API | S08 | Workflow |
 | S10 | Tauri desktop can browse a cloud run and start/watch processing | S10b | Desktop |
-| S11 | Operator reviews images, identities and exceptions | S10 | Desktop / Workflow |
-| S12 | Destination/positions selected; exact enrollment plan approved | S04, S11 | Desktop / Workflow |
-| S13 | One approved pilot label enrolled with a durable receipt | S12 | Desktop / Workflow |
-| S14 | Lost API responses and interrupted rows reconcile safely | S13 | Workflow |
-| S15 | Bounded bulk enrollment with pause/resume | S14 | Desktop / Workflow |
-| S16 | Per-position reconciliation and downloadable final report | S15 | Desktop / Workflow |
+| S11 | Operator reviews images, identities and exceptions | S11b | Desktop / Workflow |
+| S12 | Destination/positions selected; exact enrollment plan approved | S12b | Desktop / Workflow |
+| S13 | One approved pilot label enrolled with a durable receipt | S13b | Desktop / Workflow |
+| S14 | Lost API responses and interrupted rows reconcile safely, script-proven | S13a | Workflow |
+| S15 | Bounded bulk enrollment with pause/resume | S15b | Desktop / Workflow |
+| S16 | Per-position reconciliation and downloadable final report | S16b | Desktop / Workflow |
 | S17 | Python helper produces atomic captures and a sealed manifest | S17b | Capture / desktop |
 | S18 | Checksum-aware upload API and verified completion | S07 | Workflow / storage |
-| S19 | Desktop uploads resume safely after restart | S10, S17, S18 | Desktop |
+| S19 | Desktop uploads resume safely after restart | S19b | Desktop |
 | S20 | Web capture controls enter the complete workflow without scripts | S20b | Desktop / Workflow |
 | S21 | Signed Tauri/helper installer and upgrade/rollback validation | S21b | Desktop / release |
-| S22 | Production infrastructure, capacity, backups and operations ready | S16, S19 | Workflow / platform |
+| S22 | Production infrastructure, capacity, backups and operations ready | S16a, S19a | Workflow / platform |
 | S23 | Integrated failure/security rehearsal passes | S21, S22 | Cross-cutting |
 | S24 | Controlled physical-Reel pilot and release decision | S23 | Operations / product / algorithm |
 
-### Tauri/helper child gates
+### Backend/script and UI child gates
 
-Each row is a separately reviewable ticket. The parent checklists below define shared requirements; split further if a ticket exceeds roughly three implementation days.
+Each row is separately reviewable; split B/A/C/T work further if it exceeds roughly three implementation days. An `a` backend/script gate is not a claim of UI completion. S17/S21 are explicit headless/release exceptions to the `a`/`b` split.
 
 | ID | Deliverable / acceptance evidence | Depends on |
 |---|---|---|
-| S10a | Minimal Tauri shell, typed fake native/helper bridge, restricted command surface, responsive bundled web UI and Windows/WebView2 smoke bundle; no camera/cloud writes | S01 |
-| S10b | Native browser/PKCE and credential lifecycle, allowlisted Workflow client, Runs/import/process UI; restart/expiry/denied-project tests against S09; completes S10 | S09, S10a |
-| S17a | Versioned Python helper over inherited pipes, Rust supervision, simulator/preflight, start/status/stop and packaged Windows helper proof; malformed protocol, duplicate start, EOF/exit and backpressure tests; never claim sealing yet | S01, S10a |
-| S17b | Atomic files, real writer/QR barrier, sealed inventory and crash recovery using that helper; simulator/golden and fault tests; completes S17 | S17a |
-| S20a | Web camera/preview/settings/start/stop controls over the retained engine; bounded preview and supported control parity, single camera owner, offline capture and close/reload tests | S10, S17 |
-| S20b | Fresh capture -> upload -> cloud review/enrollment/report using the preceding slices; completes S20 | S16, S19, S20a |
+| S10a | Nonvisual native auth/Workflow client and frontend state adapter; scripts prove import/start/cancel/poll/reconnect through S09 APIs, with no Tauri window | S09 |
+| S10b | Minimal Tauri shell, restricted command/window surface, bundled Runs UI over S10a, Windows/WebView2 and UI failure tests; completes S10 | S10a |
+| S11a | Review persistence/authorization API, nonvisual review client, scripted stale-revision/QC/association tests; no screens | S09 |
+| S11b | Review grid, filters and evidence inspection over the proven review client; completes S11 | S10, S11a |
+| S12a | Target/position/approval backend and API, client and scripted immutable-plan proof with synthetic human-review decisions; no enrollment writes | S04, S11a |
+| S12b | Target picker/position confirmation/approval UI over S12a; completes S12 | S11, S12a |
+| S13a | Durable pilot worker and API, client and script proof of one approved row/receipt; fake APID in CI, explicit opt-in for real nonproduction writes | S12a |
+| S13b | Real-write confirmation/Pilot UI over the proven command; completes S13 | S12, S13a |
+| S15a | Bulk scheduler/API, client and scripted pause/restart/recovery proof; no UI | S14 |
+| S15b | Enroll progress/pause/resume/conflict UI over S15a; completes S15 | S13, S15a |
+| S16a | Reconciliation/report backend and API, client and scripted per-position/export assertions; no UI | S15a |
+| S16b | Results/export UI over S16a; completes S16 | S15, S16a |
+| S17a | Headless Python helper API, UI-independent Rust supervisor/client, packaged Windows simulator script proof including start/status/stop/EOF/backpressure; never claim sealing yet | S01 |
+| S17b | Atomic files, writer/QR barrier, inventory and crash recovery through that client/protocol; scripted simulator/golden evidence; completes S17 | S17a |
+| S19a | Native upload journal/engine, command client and scripts for sealed input/verified transfer/restart through S18; no UI | S10a, S17, S18 |
+| S19b | Upload UI over S19a with responsiveness/failure tests; completes S19 | S10, S19a |
+| S20a | Nonvisual capture-to-report client coordination and full scripted synthetic journey through helper, upload and Workflow APIs, with opt-in real qualification | S16a, S17, S19a |
+| S20b | Capture/preview/settings controls and complete Tauri journey over the proven clients; offline/close/reload/owner tests; completes S20 | S16, S19, S20a |
 | S21a | Tauri Windows bundle with pinned headless helper/resources, WebView2 and Vimba prerequisite handling; clean-machine/offline provisioning evidence | S20 |
 | S21b | Signing, helper/host version checks, old-app data import, upgrade/rollback and diagnostic validation; completes S21 | S21a |
 
 ### Work lanes
 
 ```text
- S00 -> S01
-          +--> S02 --> S03
-          |      +---> S04 (early, opt-in APID proof)
-          |
-          +--> S05 --> S06 --> S07 --> S18
-          |                     |
-          |       S02 + S03 ----+--> S08 --> S09 ---------+
-          |                                             v
-          +--> S10a ---------------------------------> S10b --> S10 --> S11
-                  |                                                     |
-                  +--> S17a --> S17b --> S17                S04 --------+--> S12
-                                                                           |
-                                                      S16 <-- S15 <-- S14 <-- S13
+ BACKEND / API / NONVISUAL CLIENT / SCRIPT LANE (no UI prerequisite)
 
- S10 + S17 + S18 --------> S19
- S10 + S17 -------------> S20a
- S16 + S19 + S20a -------> S20b --> S20 --> S21a --> S21b --> S21
- S16 + S19 -------------> S22
- S21 + S22 -------------> S23 --> S24
+ S00 -> S01
+ S01 -> S05 -> S06 -> S07
+ S01 -> S02 -> S03           S02 -> S04 (opt-in APID proof)
+ S02 + S03 + S07 ----------> S08 -> S09 -> S11a
+ S04 + S11a ---------------> S12a -> S13a -> S14 -> S15a -> S16a
+ S01 -> S17a -> S17b -> S17
+ S09 -> S10a                 S07 -> S18
+ S10a + S17 + S18 ---------> S19a
+ S16a + S17 + S19a --------> S20a (scripted capture-to-report)
+ S16a + S19a --------------> S22 (operations)
+
+ UI LANE (each screen waits for its own script gate)
+
+ S10a -> S10b -> S10
+ S10 + S11a ---------------> S11b -> S11
+ S11 + S12a ---------------> S12b -> S12
+ S12 + S13a ---------------> S13b -> S13
+ S13 + S15a ---------------> S15b -> S15
+ S15 + S16a ---------------> S16b -> S16
+ S10 + S19a ---------------> S19b -> S19
+ S16 + S19 + S20a ---------> S20b -> S20 -> S21a -> S21b -> S21
+ S21 + S22 ----------------> S23 -> S24
 ```
 
 The parent and child dependency tables are authoritative if the overview diagram omits a dependency. S04 is an opt-in nonproduction technical probe; it does not unlock unattended/product enrollment. That only starts after review and durable intent exist in S12-S14.
@@ -126,13 +167,14 @@ The parent and child dependency tables are authoritative if the overview diagram
 Every implementation slice must satisfy all of these, in addition to its own TODOs:
 
 - [ ] Scope, owner, affected repo/branch and acceptance cases agreed before coding.
-- [ ] Happy-path and relevant failure-path tests committed; real network/hardware tests opt-in.
+- [ ] B/A/C/T/U order followed where applicable; backend/API/client/script gate accepted before its UI work. Record any inapplicable layer explicitly.
+- [ ] Happy-path and failure-path tests plus repeatable headless acceptance script committed; assertions cover real API/durable state with declared external fakes. Real network/hardware writes are separately opt-in.
 - [ ] Schema changes have migrations/compatibility tests where applicable; no hand-edited generated APID artifacts.
 - [ ] Authorization, bounded resources, secret redaction and safe path handling included where first introduced.
 - [ ] State-changing operations have durable intent and defined retry/cancel behavior; no false exactly-once claims.
 - [ ] Existing capture/simulator behavior still passes where affected; no UI-thread disk/network work.
 - [ ] Feature can be disabled safely; rollback does not delete raw captures, approvals or receipts.
-- [ ] Demo/evidence recorded, including what was mocked versus tested against real services.
+- [ ] Script command, fixture/version, expected assertions, nonzero failure behavior and secret-free evidence recorded; distinguish actual backend/DB, mocked dependencies and separately qualified live services.
 - [ ] Human review accepted; update only the completed slice's checklist/status.
 
 A later reliability/security slice is a system-level rehearsal, not permission to defer essential safeguards until release.
@@ -147,7 +189,8 @@ A later reliability/security slice is a system-level rehearsal, not permission t
 
 TODO:
 - [x] Select Tauri + bundled web UI while retaining the Python capture engine as a local helper (user confirmed; no implementation implied).
-- [ ] Confirm frontend framework/tooling proposal and cloud enrollment worker versus Windows-origin enrollment; record these separately from the shell decision.
+- [x] Use backend -> API -> nonvisual frontend/client integration -> scripted proof -> UI for each feature (user confirmed; no tests/implementation implied).
+- [ ] Confirm frontend framework/tooling proposal and cloud enrollment worker versus Windows-origin enrollment; record these separately from the shell and delivery-order decisions.
 - [ ] Confirm Workflow repository/runtime, capture-helper upstream/distribution/owners, operated EKS versus Batch/ECS, nonproduction endpoints and owners.
 - [ ] Choose the initial profile, required DUST slots, serial authority and reference-data version.
 - [ ] Define scan-order/reference-order/APID-position mapping, including reverse feed and endpoint labels; define indexing and no-gap policy.
@@ -170,7 +213,7 @@ TODO:
 - [ ] Specify canonical digest inputs and normalization: content/version identity, QR exactness, TEXT semantics, positions, target context and indexing; exclude signed URLs/tokens.
 - [ ] Add synthetic/golden fixtures: valid and incomplete schema-v2 Reel documents, multiple named DUST slots, duplicate identity/path, unsafe path, reverse mapping and partial capture.
 - [ ] Add fake native/helper, HTTP/object-store/runner adapters plus deterministic clock/fault injection, including malformed/oversized IPC, helper restart and delayed start responses. Mocks must not be mistaken for cloud, camera or scientific qualification.
-- [ ] Establish focused CI for changed components; normal test runs require no camera, AWS, APID key or access to protected reference files.
+- [ ] Establish focused CI and acceptance-script conventions: explicit fixtures, actual local service/DB boundary, bounded waits, assertions, exit codes and redacted evidence. Define a UI-independent production client/command seam usable by scripts; normal CI requires no camera, AWS/APID key or protected reference files.
 
 **Acceptance:** TypeScript/Rust/Python consumers interpret shared golden identities/digests consistently; invalid fixtures and incompatible helper messages fail with stable machine codes.
 **Not included:** all future routes/tables, a new UI framework or a deployed service.
@@ -237,7 +280,9 @@ TODO:
 - [ ] Test missing/expired/wrong-audience tokens, a disallowed project and attempted destination escalation; fail closed outside explicitly isolated tests.
 - [ ] Define the backend API/worker roles in one codebase and establish a nonproduction smoke deployment or local isolated equivalent.
 
-**Acceptance:** allowed caller sees only its configured projects; a forged subject/project/context cannot cause privileged work.
+- [ ] Add a nonvisual project/auth client and script that starts/targets the real isolated Workflow service, verifies readiness/migrations, lists allowed projects and rejects missing/expired/forged/wrong-project credentials. Test auth fixtures must not bypass production checks.
+
+**Acceptance:** the script proves allowed access and denial through the running API; a forged subject/project/context cannot cause privileged work. This is the first new backend/API capability, not an already available service.
 **Not included:** all pipeline features, AWS master keys in the desktop, Better Auth setup or new operator sign-up flows.
 
 ### S06 - Register runs and persist commands/events
@@ -253,7 +298,9 @@ TODO:
 - [ ] Define intermediate/recovery states and timeouts instead of deriving completion from a local in-memory flag.
 - [ ] Test concurrent duplicate submissions, restart, denied project access, stale revision and outbox replay.
 
-**Acceptance:** repeated create returns one run ID; accepted commands/events survive process death; no cross-project leakage.
+- [ ] Add a headless run client and repeatable script: create -> replay same command -> retrieve/list -> restart backend -> retrieve same state; changed-command replay and cross-project reads fail. Runtime operations use the API, not DB writes.
+
+**Acceptance:** scripted API/client proof shows one run ID, restart durability and no cross-project leakage before any Runs screen is implemented.
 **Not included:** remote raw verification, a generic workflow framework or real job submission.
 
 ### S07 - Import an existing S3 run safely
@@ -269,7 +316,9 @@ TODO:
 - [ ] Specify crash recovery between S3 markers and PostgreSQL commits; neither resource is part of a shared transaction. Reconcile idempotently, and keep DB state as the scheduling authority.
 - [ ] Test >1 page, changed same-size object, mutation during import, missing frame, duplicate completion and a forbidden prefix.
 
-**Acceptance:** processing references a fixed verified frame set even if the old upload prefix later changes.
+- [ ] Extend the typed import client and script to verify pagination, immutable input identity and denied prefixes through the actual Workflow API/DB with a controlled object store; live S3 qualification is separate.
+
+**Acceptance:** script proves processing references a fixed verified frame set even if the old upload prefix later changes.
 **Not included:** automatic processing on every S3 object-created event or generic recursive burst flattening.
 
 ### S08 - Run one cloud processing attempt
@@ -286,7 +335,9 @@ TODO:
 - [ ] Implement cancellation and exact-version checkpoint restoration or retained-volume reuse. If checkpoints cannot be verified, rerun in new scratch; never pretend an empty volume is resumable.
 - [ ] Test duplicate starts, lost submit response, worker restart, OOM, timeout, cancellation, failed result upload and recovery after final-upload code cannot run.
 
-**Acceptance:** one attempt has one active runtime owner; a failed/killed job never becomes successful merely because an output prefix exists.
+- [ ] Extend the nonvisual processing client and script to start/poll/cancel/reconnect, inject ambiguous runner submission and restart the scheduler. Use a deterministic runner in CI and record separate opt-in cloud evidence.
+
+**Acceptance:** scripted API/state proof shows one active runtime owner per attempt; a failed/killed job never succeeds merely because an output prefix exists.
 **Not included:** auto-enrollment, scientific quality approval or a separate scheduler microservice.
 
 ### S09 - Validate and publish processing results
@@ -302,78 +353,81 @@ TODO:
 - [ ] Add authorized attempt detail/candidate pagination/artifact download routes; short-lived URLs refer only to registered permitted artifacts.
 - [ ] Test empty/partial/corrupt outputs, optimistic CSV completeness, missing rendered image, duplicate import, interrupted publication and unauthorized artifact access.
 
-**Acceptance:** a valid small run appears as inspectable candidates; any missing/corrupt required image is a stable blocking finding.
+- [ ] Add the candidate/artifact client and script the complete import -> process -> candidate/artifact flow, including a missing/corrupt required crop and unauthorized access. Run the real new backend; fake only declared external storage/runner dependencies.
+
+**Acceptance:** the headless script proves a valid fixture becomes inspectable candidates and a missing/corrupt required image is a stable blocking finding. This API-ready gate precedes S10 client integration and Tauri screens; it is not live scientific qualification.
 **Not included:** editable algorithm YAML, huge embedded HTML as primary UI or the assumption that structural completeness proves correct physical association.
 
 ### S10 - Browse and process cloud runs from the desktop
 
 **Outcome:** the first useful Tauri desktop feature works without a camera, helper runtime or enrollment permission.
-**Depends on:** S10b (inherits S09 and S10a); start S10a after S01. **Area:** proposed `apps/desktop/src/` and native `src-tauri/src/{commands,auth,workflow}/`.
+**Depends on:** S10b (inherits S10a and S09). **Area:** UI-independent native auth/Workflow services and frontend state adapter, then proposed `apps/desktop/` shell/screens.
 
 TODO:
-- [ ] S10a: create the minimal Tauri v2/bundled web UI, typed mock/native bridge, explicit custom-command/window permissions and CSP; test denied generic shell/file/URL access and a Windows/WebView2 smoke bundle. Do not scaffold every future screen.
-- [ ] S10b: add allowlisted Workflow endpoint/project selection and native system-browser/PKCE login; validate callbacks and implement expiry/refresh or clear re-login through OS credential storage. Never expose tokens to the renderer/helper.
+- [ ] S10a: implement the nonvisual frontend/native adapter over proven S09 APIs: allowlisted Workflow/project selection, native system-browser/PKCE callback validation, expiry/re-login, OS credential storage, durable command IDs and reconnect/state mapping. Keep these modules usable from a headless test runner; no tokens in renderer/helper.
+- [ ] S10a: script import/start/poll/cancel/reconnect and denial/expiry/repeated-command cases through that same adapter and actual isolated API/DB. A fake UI adapter alone does not pass the gate.
+- [ ] S10b, only after S10a passes: create the minimal Tauri/bundled UI, bind the tested command core, configure explicit custom-command/window permissions and CSP, and test denied generic shell/file/URL access plus Windows/WebView2 smoke installation.
 - [ ] Add Runs list, existing-S3 import action and run detail, including input status, profile, attempt history and capture-loss uncertainty.
 - [ ] Wire Start Processing/Cancel/status polling to the real Workflow API; preserve command IDs across retries and cache only rebuildable cloud state.
 - [ ] Show accurate queue/phase/error states, not guessed percentage from log lines; reconnect after network loss/app restart.
 - [ ] Keep HTTP/disk work in asynchronous native services, bound renderer list/image memory, and allow cloud-only use with missing helper/Vimba/camera. Render only bundled application code with native privileges.
 - [ ] Test slow/failing API, expired credentials, repeated clicks, restart, denied projects and UI responsiveness with a large fake run list.
 
-**Acceptance:** S10a/S10b pass; operator imports/selects a run, launches processing and sees the same durable attempt after reopening the Tauri app. Core UI can be tested with fake native adapters.
-**Not included:** enrollment or camera controls (S20a), live capture, a local stitcher or browser-hosted deployment.
+**Acceptance:** S10a's nonvisual client/script proof passes before S10b starts; the UI then reproduces the same import/process/reconnect outcomes without reimplementing business rules. Mock UI tests supplement, not replace, the actual API/script proof.
+**Not included:** enrollment or camera controls (S20b), live capture, a local stitcher or browser-hosted deployment.
 
 ### S11 - Review physical labels and resolve findings
 
 **Outcome:** operators can inspect evidence and accept/reject candidates without changing raw outputs.
-**Depends on:** S10. **Area:** Desktop Review panel and Workflow `reviews/`.
+**Depends on:** S11b; S11a depends on S09, while S11b depends on S10 and S11a. **Area:** Workflow `reviews/`, nonvisual review client, then Desktop Review screen.
 
 TODO:
-- [ ] Add virtualized candidate grid with full-resolution crop, selected slot names, source-frame neighbors and serial/QR provenance.
-- [ ] Add filters/counts for missing image/QR/serial, duplicate identity/path, gap, direction/association concerns and review state.
-- [ ] Persist accept/reject/needs-recapture decisions with reviewer, reason and expected revision; reject stale/concurrent overwrites.
-- [ ] Apply the approved reference-data/QR validation policy server-side; preserve case-sensitive QR values and block unsupported stock/profile mismatches.
-- [ ] Expose reprocess as a new pinned attempt; old reviews stay attached to old outputs. No silent fallback image, lossy conversion or manual identity edit without new revision/provenance.
-- [ ] Test neighbor-QR misassociation examples, first/last labels, missing frames, duplicate identities and stale review against supplied ground truth.
+- [ ] S11a/B-A: persist accept/reject/needs-recapture decisions with reviewer, reason and expected revision; expose authorized review/reprocess APIs and reject stale/concurrent overwrites.
+- [ ] Apply approved reference-data/QR validation server-side; preserve exact QR values, reject unsupported stock/profile mismatches, and attach reviews to immutable outputs. No fallback image, lossy conversion or identity edit without new revision/provenance.
+- [ ] S11a/C-T: implement the review client and script candidate inspection, synthetic review decisions, stale revisions, missing slots and reprocess invalidation through the APIs; test neighbor-QR/endpoint/duplicate examples against approved ground truth. Never synthesize approvals for real runs from structural test success.
+- [ ] S11b/U: add virtualized grid, full crops, selected slots, source neighbors, serial/QR provenance and exception filters/counts over that proven client; add UI error/reload tests.
 
-**Acceptance:** a known bad association or missing required slot cannot be accepted as an enrollment-ready plan merely because the engine says complete.
+**Acceptance:** scripted server-side proof blocks known bad/missing-slot candidates before the screen is built; S11b displays the same persisted decisions and failures.
 **Not included:** profile authoring UI, Vlink-alias fallback without explicit approval, OCR or broad scientific re-tuning.
 
 ### S12 - Select target positions and freeze approval
 
 **Outcome:** an immutable plan precisely defines what will be written and where.
-**Depends on:** S04, S11. **Area:** Workflow `enrollment/` planning plus desktop target/approval UI.
+**Depends on:** S12b; S12a depends on S04 and S11a, while S12b depends on S11 and S12a. **Area:** Workflow planning/API, typed client/script, then target/approval UI.
 
 TODO:
-- [ ] Expose authorized APID Collection/Reel pickers via the server-owned adapter; persist UUIDs and confirm Team, mutable Reel state and expected composition.
-- [ ] Implement the S00 mapping from candidate scan index/reference ordinal to explicit positive APID position; show reverse-feed and range interpretation for confirmation.
+- [ ] S12a/B-A: expose authorized Collection/Reel catalog and planning/approval endpoints via the server-owned adapter; persist UUIDs and validate Team, mutable Reel state and expected composition.
+- [ ] Implement the S00 mapping from candidate scan index/reference ordinal to explicit positive APID position; return reverse-feed/range interpretation for explicit client confirmation.
 - [ ] Reject duplicate/occupied/unresolved positions and required-label gaps by policy; never silently compact, append or reverse positions.
 - [ ] Validate every selected crop and identity/review revision server-side; freeze artifact hashes, member definitions, target context and explicit indexing into the approval digest.
 - [ ] Persist plan/rows and approving subject transactionally; enforce idempotent approval commands and stale-revision rejection.
-- [ ] Test changed crop, serial, position, Team, Reel or indexing after approval; each requires a new approved plan rather than mutation underneath enrollment.
+- [ ] S12a/C-T: implement the nonvisual target/approval client and script synthetic review -> plan -> validate -> approve; repeated intent yields the same ID/digest. Changed crop/identity/position/Team/Reel/indexing invalidates approval. Assert zero APID mutations from planning.
+- [ ] S12b/U: implement destination pickers, position/range display and exact-plan approval confirmation over that tested client; keep approval explicit and server-authoritative.
 
-**Acceptance:** the same approval produces the same plan ID/digest; a different approved payload cannot reuse it, and no APID mutation occurs during offline validation/planning.
+**Acceptance:** S12a passes independently of screens; S12b reproduces the same immutable-plan behavior. A different payload cannot reuse approval, and offline validation/planning performs no APID mutation.
 **Not included:** Collection/Reel creation, enrollment writes or an invented remote dry-run/extract endpoint with no side effects.
 
 ### S13 - Enroll one approved pilot label
 
 **Outcome:** the first product enrollment is one real, reviewed write with durable receipts.
-**Depends on:** S12. **Area:** Workflow enrollment row worker and desktop Pilot action.
+**Depends on:** S13b; S13a depends on S12a, while S13b depends on S12 and S13a. **Area:** Workflow pilot worker/API, typed client/script, then Pilot UI.
 
 TODO:
 - [ ] Add plan/row claim with exclusive target-Reel ownership, intent-before-send checkpoints and idempotent Start Pilot command.
 - [ ] Read only frozen approved crops and verify bytes/context immediately before use; checkpoint each slot's extraction ID with content digest.
 - [ ] Create the Label with all named DUST/TEXT/QR members, its final explicit position and explicit wire indexing through the S04 adapter.
 - [ ] Validate returned Reel/position/live identifiers/values/indexing and persist crop-to-fingerprint-to-Label/member receipt before marking verified.
-- [ ] Show an explicit real-write confirmation and result. Network ambiguity or crash becomes `reconciling`/operator action, not a blind resubmission; automated recovery comes in S14.
-- [ ] Test double-click, denied target, malformed response, partial extraction, lost response and crash before receipt persistence; assert pilot cannot expand into a batch.
+- [ ] S13a/A-C-T: expose the explicit pilot command/status API and nonvisual client; script one approved synthetic row through real Workflow state and fake APID. Test repeated commands, denied target, malformed/partial/lost responses and crash before receipt; the pilot cannot expand into a batch. Live nonproduction writes require separate approved input/target and explicit opt-in.
+- [ ] Treat ambiguity as `reconciling`/operator action, never blind resubmission; automated recovery follows in S14.
+- [ ] S13b/U: add real-write confirmation and receipt/conflict display using the proven client; no bypass of the server's frozen-plan/intent gate.
 
-**Acceptance:** one approved candidate is traceable to one validated server result at its final position; uncertainty never appears as success.
+**Acceptance:** S13a proves row/receipt and unknown-outcome behavior before Pilot UI exists; S13b displays it without hiding uncertainty or changing the approved position.
 **Not included:** bulk concurrency, deleting a pilot for re-enrollment, or production writes.
 
 ### S14 - Reconcile interrupted and ambiguous enrollment rows
 
 **Outcome:** resuming cannot silently duplicate or alter the intended enrollment.
-**Depends on:** S13. **Area:** Workflow recovery/reconciliation and fault-injection tests.
+**Depends on:** S13a, not Pilot UI completion. **Area:** Workflow recovery/reconciliation and scripted fault-injection harness.
 
 TODO:
 - [ ] Implement deterministic recovery for each boundary: before extraction, after slot receipt, before create, after possible remote commit and before local result commit.
@@ -383,13 +437,15 @@ TODO:
 - [ ] Fence stale owners and serialize token renewal; an expired lease does not prove that an earlier HTTP request failed to commit.
 - [ ] Test commit-then-disconnect, two workers, stale lease, compatible replay, different-Reel/position conflict, bound/transferred Label and persistent authorization failure.
 
-**Acceptance:** injected lost-success responses resolve the original compatible result; conflicts/unknowns pause instead of creating a replacement or moving positions.
+- [ ] Drive recovery/status through the production nonvisual client/API in a restartable script; assert persisted receipt/member identity after commit-then-disconnect, not merely unit-test mock calls.
+
+**Acceptance:** scripted lost-success responses resolve the original compatible result without a UI; conflicts/unknowns pause instead of creating a replacement or moving positions.
 **Not included:** a universal exactly-once promise, treating every 409 as success or general APID idempotency-key support.
 
 ### S15 - Enroll the remainder with bounded concurrency
 
 **Outcome:** approved Reels progress without requiring one click per label.
-**Depends on:** S14. **Area:** Workflow batch scheduler and desktop Enroll panel.
+**Depends on:** S15b; S15a depends on S14, while S15b depends on S13 and S15a. **Area:** Workflow batch/API, nonvisual client/scripts, then Enroll UI.
 
 TODO:
 - [ ] Schedule only frozen, approved, incomplete rows; skip the verified pilot and completed rows without re-extracting them.
@@ -397,36 +453,37 @@ TODO:
 - [ ] Implement start remainder, pause, resume and stop scheduling; allow in-flight writes to checkpoint before reporting paused/cancelled.
 - [ ] Expose durable totals by verified/pending/reconciling/error state, per-row diagnostics and retry eligibility; completed percentage excludes uncertain rows.
 - [ ] Require reauthorization/current valid plan context on commands; desktop disconnect does not cancel already-approved cloud work.
-- [ ] Test a mixed-success batch, repeated Start/Resume, worker restart, 429 storm, revoked credentials, two operators and pause during in-flight writes.
+- [ ] S15a/C-T: implement the batch client and script mixed success, repeated Start/Resume, worker restart, 429 storm, revoked credentials, two operators and pause during in-flight writes against actual Workflow state and declared fake APID.
+- [ ] S15b/U: add progress, pause/resume and conflict controls over the script-proven client; do not infer verified progress from rendered rows.
 
-**Acceptance:** a small approved batch completes/reports partial state correctly, and resume neither changes positions nor re-enrolls verified rows.
+**Acceptance:** S15a independently proves partial/resume behavior without changed positions or re-enrollment; S15b then reproduces it through the UI.
 **Not included:** unbounded fan-out, auto-enroll after upload or cancellation that claims to roll back remote writes.
 
 ### S16 - Reconcile the Reel and export results
 
 **Outcome:** completion is proven against APID, not inferred from a local counter.
-**Depends on:** S15. **Area:** Workflow report job and desktop Results panel.
+**Depends on:** S16b; S16a depends on S15a, while S16b depends on S15 and S16a. **Area:** Workflow report/API, nonvisual client/scripts, then Results UI.
 
 TODO:
 - [ ] Fetch authoritative Reel detail and compare each approved position with receipt-backed Label/member IDs, live TEXT/QR values, indexing and allowed state.
 - [ ] Surface missing/unexpected positions, duplicate warnings, changed membership and archived/transferred/bound state; do not settle a mismatch by changing remote data.
 - [ ] Mark a plan completed only after reconciliation passes; otherwise persist partial/needs-attention with explicit reasons and last verified timestamp.
 - [ ] Persist versioned JSON/CSV reports in S3, including input/profile/approval digests and returned IDs but no keys/tokens/presigned URL secrets.
-- [ ] Add Results table, APID links and authorized export; neutralize CSV formulas and escape UI/report content.
-- [ ] Test equal totals with wrong positions, post-enrollment remote changes, incomplete DUST receipts and interrupted report publication.
+- [ ] S16a/A-C-T: expose authorized reconciliation/report/export APIs and client; script equal totals with wrong positions, remote changes, incomplete DUST receipts and interrupted publication. Neutralize CSV formulas and assert exact report/receipt references, not aggregate counts.
+- [ ] S16b/U: add Results table, APID links and export over the proven client; escape displayed/report content and show pending/conflict states.
 
-**Acceptance:** report identifies a position/member mismatch even when aggregate counts match; a report can be reconstructed without the original desktop.
+**Acceptance:** S16a reconstructs the report and detects per-position mismatches without any desktop; S16b presents the same outcome. The complete backend approval/enrollment/report path is scriptable independently of its screens.
 **Not included:** automated Label repair, movement/binding or editing previously enrolled plans.
 
 ### S17 - Seal new captures safely
 
 **Outcome:** the supervised Python capture helper produces a trustworthy inventory without blocking acquisition.
-**Depends on:** S17b (inherits S17a, S01 and S10a). **Area:** approved `labeltron-two` working branch `capture/{writer,runner,seal}.py` and `headless/`; Tauri `src/capture/` supervisor. Do not change `reference/`.
+**Depends on:** S17b (inherits S17a and S01); no Tauri shell dependency. **Area:** approved `labeltron-two` working branch `capture/{writer,runner,seal}.py`/`headless/` and UI-independent native supervisor/client later bound into Tauri. Do not change `reference/`.
 
 TODO:
 - [ ] S17a: wrap existing `BurstRunner`/`RunRequest`, typed capture callbacks, camera protocol/simulator, runtime and preflight with a headless versioned pipe protocol; stdout is protocol-only, stderr is redacted logs. No cloud credentials or upload worker in Python.
 - [ ] S17a: add Rust fixed-executable supervision, handshake/version checks, single camera/run ownership, start-intent/status reconciliation, bounded messages/preview metadata, simultaneous pipe draining, stop/EOF/exit timeouts and Windows process cleanup. Never replay an unknown start blindly.
-- [ ] S17a: build a pinned target-specific helper with PyInstaller and smoke-test the simulator/preflight through Tauri on Windows without user-installed Python. Keep existing CLI/Qt and golden tests passing; missing helper/runtime must not block cloud review.
+- [ ] S17a: build a pinned target-specific helper with PyInstaller and script simulator/preflight/start/status/stop through the same native supervisor/command core on Windows, without a Tauri window or user-installed Python. Keep CLI/Qt and golden tests passing. Tauri binding/UI checks follow at the UI gate, and missing helper/runtime must not block cloud review.
 - [ ] S17b: assign stable local run ID and capture metadata before frames arrive; preserve current naming/layout and camera recipes.
 - [ ] Write temporary image files then atomically rename; ignore unfinished files in discovery and record write failures.
 - [ ] Replace timed-join-as-success with a real flush/stopped barrier, including relevant QR jobs; expose timeout/interrupted states.
@@ -434,8 +491,8 @@ TODO:
 - [ ] Atomically publish a sealed capture manifest; add explicit recovery inventory for a crashed unsealed run and safe path/symlink validation.
 - [ ] Test simulator capture, slow disk, queue overflow, disk full, Unicode paths, protocol mismatch, malformed/oversized output, helper/native crash, duplicate start, blocked stderr/stdout, EOF/stop timeout and crash between file/manifest writes; retain existing golden camera tests.
 
-**Acceptance:** S17a/S17b pass; helper closure and Stop acknowledgement cannot fake a seal. Sealed manifests enumerate only complete exact files; uncertain capture is needs-attention, never ready to process.
-**Not included:** changing trigger behavior, burst-to-label assumptions, capture web controls (S20a), stitching or cloud uploads.
+**Acceptance:** headless client/protocol scripts pass for S17a/S17b before capture controls are built. Stop/exit cannot fake a seal; manifests enumerate complete exact files and uncertain capture remains needs-attention.
+**Not included:** changing trigger behavior, burst-to-label assumptions, capture web controls (S20b), stitching or cloud uploads.
 
 ### S18 - Add checksum-aware signed uploads and completion
 
@@ -450,41 +507,44 @@ TODO:
 - [ ] Keep legacy prefixes/import behavior explicit; do not change existing capture uploads' namespace silently or grant broad read/write privileges.
 - [ ] Test same-size different bytes, larger stale object, missing file, expired URL, duplicate completion, post-seal overwrite and forbidden key/project.
 
-**Acceptance:** `raw_verified` is impossible while any expected object is absent, unverified or mutable outside its pinned identity.
+- [ ] Add a nonvisual upload-API client/driver and script batch signing, controlled object PUT, complete-upload, replay and checksum failure through actual Workflow APIs/DB. Reuse this contract/client in S19's native transfer integration.
+
+**Acceptance:** scripted proof shows `raw_verified` is impossible while an expected object is absent, unverified or mutable outside its pinned identity.
 **Not included:** per-byte multipart resume for ordinary small frames, a public bucket or auto-start on arbitrary S3 events.
 
 ### S19 - Persist and resume desktop uploads
 
 **Outcome:** a station restart does not force a complete re-upload or hide corruption.
-**Depends on:** S10, S17, S18. **Area:** Tauri native `src/storage/` (SQLite and streaming transfers) and web upload UI.
+**Depends on:** S19b; S19a depends on S10a, S17 and S18, while S19b depends on S10 and S19a. **Area:** UI-independent native storage/transfer services and client/scripts, then web upload UI.
 
 TODO:
 - [ ] Add Rust-owned SQLite migrations for local run registration, per-file digest/version receipt, retry state and persisted command IDs; separate authoritative local capture data from cloud cache. Python publishes sealed manifests; neither helper nor renderer writes this DB.
 - [ ] Stream sealed frame bytes through bounded workers and just-in-time URL batches; checkpoint after validated responses and preserve request/header separation for S3.
 - [ ] On restart, reconcile unconfirmed transfers with backend receipts instead of assuming an interrupted PUT either succeeded or failed.
 - [ ] Refresh operator credentials/URLs safely, retry transient errors with backoff, and implement pause/cancel between files without deleting local raw evidence.
-- [ ] Show file/byte progress, failed-file reasons and server-verified completion; never label folder existence or larger remote size as success.
-- [ ] Test >500 files, >1 listing page, process kill after remote PUT/before local receipt, changed local input, URL/token expiry, offline startup and UI responsiveness.
+- [ ] S19a/A-C-T: expose typed upload commands/state through the nonvisual client and script >500 files, pagination, kill after PUT/before local receipt, changed input, expiry and offline startup against actual native journal/Workflow APIs with controlled storage.
+- [ ] S19b/U: show file/byte progress, failed-file reasons and server-verified completion over that client; test responsiveness. Folder existence or larger remote size is not success.
 
-**Acceptance:** upload resumes at verified object boundaries; changed/corrupt data fails visibly and duplicate completion still produces one verified input.
+**Acceptance:** S19a proves verified-boundary resume and corruption/duplicate-completion behavior without UI; S19b displays those proven states.
 **Not included:** removing local raw files automatically or processing an actively changing capture folder.
 
 ### S20 - Connect fresh capture to the complete operator journey
 
 **Outcome:** an operator completes a new run through Tauri web controls without command-line tools.
-**Depends on:** S20b (inherits S20a, S16, S19; S20a depends on S10 and S17). **Area:** web capture screens, native/helper bridge and existing Workflow routes.
+**Depends on:** S20b (S16, S19, S20a); S20a depends on S16a, S17 and S19a and needs no UI. **Area:** nonvisual capture-to-report coordination/scripts, then web capture screens and native bindings.
 
 TODO:
-- [ ] S20a: implement web camera selection/preflight, supported exposure/gain/settings, preview, capture mode and start/status/stop controls over the retained engine. Preserve supported behavior and loss counters; use simulator/golden evidence rather than new hardware recipes.
-- [ ] S20a: use bounded/downsampled preview cache with native-scoped opaque handles; no raw arrays/base64 firehose through JSON. Test preview saturation, renderer reload, second-instance ownership and close/cancel/stop-and-flush without silently completing a run.
-- [ ] S20b: add New Run dialog with authorized project/profile, printed reel display metadata and capture requirements; preserve capture-only/offline operation.
+- [ ] S20a/C-T: compose the proven helper/upload/Workflow clients into a nonvisual run coordinator and script the full synthetic capture -> seal -> verified upload -> process -> review/approval fixture -> pilot/batch -> report flow. Use actual new backend/journals and declared fake external services; real association/write qualification is separately opt-in.
+- [ ] S20a: script offline capture/later upload, start/stop/restart and pending/error transitions using the same command core that the UI will call. No runtime DB bypass, real automatic approval or new hardware recipes.
+- [ ] S20b/U, after S20a passes: add web camera/preflight/settings/preview/mode/start/status/stop controls and New Run dialog over the proven coordinator; preserve supported camera behavior, loss counters and capture-only/offline operation.
+- [ ] S20b: use bounded/downsampled preview cache and native-scoped opaque handles; no raw JSON/base64 firehose. Test saturation, renderer reload, owner exclusion and close/cancel/stop-and-flush without silently completing a run.
 - [ ] Wire captured -> sealed -> upload -> verified -> process using existing IDs; distinguish local run from cloud run registration and attempt history without duplicating entities.
 - [ ] Add optional auto-process only after verified upload; enrollment always requires review, frozen target/positions and real-write confirmation.
 - [ ] Make every stage's actionable error lead to the appropriate retry/review screen; reconnect to the same run after app restart.
 - [ ] Keep capture priority while older jobs run in the cloud; show that closing the UI does not undo cloud work or receipts.
 - [ ] Demonstrate a simulator/synthetic journey and an approved real small-run journey including offline capture and later upload.
 
-**Acceptance:** S20a/S20b pass; new web controls preserve supported capture behavior and one run reaches a reconciled result with unchanged raw evidence, no clid and no operator shell commands.
+**Acceptance:** S20a proves the full nonvisual journey before S20b UI work; S20b then reproduces it through supported capture controls with unchanged raw evidence, no clid and no operator shell commands. CI synthetic evidence is not a substitute for the approved real pilot.
 **Not included:** hardware-driver/trigger redesign, rescan segment merging or automatic partial-Reel approval.
 
 ### S21 - Package and upgrade the Windows application
@@ -506,7 +566,7 @@ TODO:
 ### S22 - Prepare production operations and capacity
 
 **Outcome:** the service is operable and recoverable, not merely deployable.
-**Depends on:** S16, S19. **Area:** Workflow/platform/release.
+**Depends on:** S16a and S19a (script-proven backend/native engines, not their screens). **Area:** Workflow/platform/release.
 
 TODO:
 - [ ] Promote tested infrastructure definitions to the approved environment, with project-scoped IAM, private encrypted S3, backend TLS and enrollment secrets separated from algorithm jobs.
@@ -556,13 +616,15 @@ TODO:
 | Gate | Required slices | What we can demonstrate | Still disabled |
 |---|---|---|---|
 | G0 - Contract proof | S00-S02, S04 | Approved small raw run -> correct crops -> direct nonproduction APID receipt | Product enrollment, production writes |
-| G1 - Cloud review alpha | S00-S11 | Existing S3 run -> verified processing -> desktop evidence review | Product enrollment until approval/row worker |
-| G2 - Existing-S3 enrollment beta | S00-S16 | Review -> frozen plan -> pilot -> recoverable batch -> authoritative report | Production/fleet rollout; fresh-capture integration may be pending |
+| G1-api - Headless cloud API proof | S09 and inherited prerequisites | Scripted import -> process -> candidates/artifacts through actual Workflow APIs; external fakes declared | UI acceptance, live/scientific qualification and enrollment |
+| G1 - Cloud review alpha | S10, S11 and inherited script gates | Proven clients -> desktop evidence review | Product enrollment until approval/row worker |
+| G2-api - Headless enrollment/report proof | S16a and inherited prerequisites | Scripted review -> frozen plan -> pilot -> recoverable batch -> per-position report; real writes only with explicit opt-in | UI acceptance, production/fleet rollout |
+| G2 - Existing-S3 enrollment beta | S16 and inherited UI/script gates | Same proven flow usable through Tauri review/enrollment/report screens | Production/fleet rollout; fresh-capture integration may be pending |
 | G3 - Complete station workflow | S00-S20 | New capture -> verified upload -> process -> review -> enrollment -> report | Production release until release gates |
 | G4 - Release candidate | S00-S23 | Signed installer + production-ready ops + integrated failure/security evidence | Physical production pilot until explicit authorization |
 | G5 - Controlled release | S00-S24 | Real-Reel evidence and named sign-offs | Any scope not explicitly qualified |
 
-These gates refine the earlier M0-M5 milestones. S04 is the early M0 proof; the ingest and existing-S3 work lanes intentionally overlap instead of making every milestone a strictly serial implementation block.
+These gates refine M0-M5. S04 remains the early opt-in adapter proof, not evidence that the new Workflow service exists. Backend/script and UI gates are separate: API readiness does not imply UI acceptance, and UI work must not unlock otherwise untestable backend behavior.
 
 ## 7. Follow-up backlog - deliberately not part of the first build
 
@@ -583,6 +645,6 @@ A feature moves into the initial scope only with an explicit decision, revised d
 - [ ] Complete S00's decision sheet, especially required DUST slots, serial source, physical positions, indexing and operated cloud runtime.
 - [ ] Confirm repositories/owners and where approved non-secret fixture copies will live.
 - [ ] Select S01 as the first code slice after S00; do not start the entire service/UI in one change.
-- [ ] Queue S02, S05 and S10a after S01 as independent engine, backend and shell tasks; start S17a after S10a. Run S04 early once engine/fixtures are trustworthy; do not defer helper packaging proof until S21.
+- [ ] After S01, prioritize S05's backend/API/client/script proof; S02 engine work and S17a headless helper can proceed independently. Continue S06-S09 API proofs before S10a frontend-client integration and S10b Tauri UI. Run S04 only after its engine/fixture/access gates; do not introduce shell-first dependencies.
 
 For each future slice handoff, record: `owner`, `status`, `dependencies passed`, `scope`, `PR(s)`, `test evidence`, `demo`, `known limitations`, `reviewer`. All current implementation statuses remain **not started**.

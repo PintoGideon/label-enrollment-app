@@ -199,4 +199,10 @@ Official Tauri v2 documentation consulted for the revised design (accessed 2026-
 - [Capabilities](https://v2.tauri.app/security/capabilities/): window/webview permissions, custom-command exposure and limits; capabilities do not sandbox native Rust or fix unchecked handler arguments.
 - [Windows installer](https://v2.tauri.app/distribute/windows-installer/): Tauri NSIS/MSI bundles, WebView2 provisioning and Windows build considerations. Existing Inno packaging is not itself a Tauri installer.
 
-No Tauri scaffold/build, Windows helper bundle, IPC smoke test, WebView2 verification or new hardware test has been performed. These are explicit S10a/S17a/S20/S21 gates, not capabilities validated by documentation review.
+No Tauri scaffold/build, Windows helper bundle, IPC smoke test, WebView2 verification or new hardware test has been performed. These are explicit future headless-client/helper and UI/release gates (S10a/S10b/S17a/S20/S21), not capabilities validated by documentation review.
+
+### Backend readiness and delivery-order clarification
+
+On 2026-09-15 EDT the user requested backend -> API -> frontend integration -> scripted proof -> UI per capability. [D08](plans/S00-pilot-scope.md) records this and the backlog now separates nonvisual client/script gates from screens. It supersedes the earlier shell-first sequence.
+
+The tracked files in this repository are still Markdown planning documents and `.gitignore`: no Workflow service, `/pipeline/v1` implementation, migration/test harness, new helper protocol or UI exists here. APID/AuthD and stitcher/capture source review establishes reusable interfaces, not deployed readiness or completion of the new backend. No new backend acceptance script has been run; document/link/dependency checks must not be reported as runtime tests.

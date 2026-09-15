@@ -1,6 +1,6 @@
 # Labeltron Enrollment - System Design
 
-**Tauri + web UI with a retained Python capture engine selected; cloud deployment and remaining pilot decisions are still proposals.** See [S00](plans/S00-pilot-scope.md).
+**Tauri + web UI with retained Python capture and backend-first, script-before-UI delivery selected. The new Workflow backend is not implemented; cloud deployment and remaining pilot decisions are still proposals.** See [S00](plans/S00-pilot-scope.md).
 
 Detailed implementation plan: [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md).
 Slice-by-slice TODOs and dependencies: [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md).
@@ -116,7 +116,7 @@ WINDOWS STATION
 +---------------------------------------------------------------------------------+
 ```
 
-The API, scheduler, result importer and enrollment worker are roles in **one new backend codebase**, not four independently designed products. The native stitcher remains a separate executable/container.
+The API, scheduler, result importer and enrollment worker are roles in **one new backend codebase**, not four independently designed products. They are not implemented yet. Existing APID/AuthD and the native stitcher provide reviewed component contracts, not a ready end-to-end Workflow service; target-environment operation remains unvalidated.
 
 Use the supplied EKS Job model if that infrastructure is operated already. Otherwise run the same container on Batch/ECS; do not build a Kubernetes platform merely to satisfy this diagram.
 
@@ -791,6 +791,27 @@ The HTTP fields, immutable approval, explicit positions and reconciliation rules
 
 ## 13. Implementation breakdown
 
+Delivery order for **each capability**, distinct from runtime data flow:
+
+```text
+ BACKEND             API              CLIENT              SCRIPTS             UI
+ domain/state ----> HTTP or IPC ----> nonvisual --------> end-to-end -------> screens
+ unit tests         contract tests   frontend adapter    assertions          smoke tests
+                                         |                  |
+                                         +-- same code -----+
+                                              |
+                                              +--------------------------> UI binds it
+
+ SCRIPT ENVIRONMENT
+ test-only runner --> production client --> real new Workflow process + test DB
+                                       \-> actual helper/native command core + journal
+ external S3/runner/APID/auth fixtures: declared fakes in CI, separate live opt-in
+```
+
+No window, direct runtime DB writes, production approval shortcut or separate mock backend should be required to prove a capability. Scripts record exact IDs/digests/state, failures and restart behavior, then the UI consumes the same tested client. Unit/API tests run earlier too. Passing synthetic tests is not live cloud/scientific qualification.
+
+Milestone outcomes (the dependency tables, not this overview, govern ordering):
+
 ```text
  M0: PROVE THE CONTRACTS
      Real approved S3 run -> pinned stitcher -> verified crop/QR/serial
@@ -806,18 +827,18 @@ The HTTP fields, immutable approval, explicit positions and reconciliation rules
        |
        v
  M3: REVIEW / APPROVAL
-     Candidate UI + source inspection + QC gates + frozen position mapping
+     Review/approval API + client + scripts -> candidate/approval UI
        |
        v
  M4: DIRECT ENROLLMENT
-     AuthD token manager + APID adapter + row receipts + retry/reconciliation
+     APID worker + row/recovery/report APIs + scripts -> enrollment/results UI
        |
        v
  M5: SHIP / OPERATE
      Signed Windows installer + monitoring + retention + full-Reel field pilot
 ```
 
-Each phase has detailed acceptance criteria in `DESKTOP_APP_PLAN.md`. The execution backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md), with 25 parent slices and explicit Tauri/helper child gates. Start the S10a shell/fake-bridge proof after S01 and S17a packaged-helper proof after S10a; neither waits for the entire cloud-review UI. S20 adds capture web controls; S21 qualifies the Tauri/helper/WebView2 release bundle. Existing-S3 and capture/upload work still overlap. Do not enable automatic enrollment before verified inputs, qualified label association, immutable approval and failure-recovery behavior are demonstrated.
+The [implementation backlog](IMPLEMENTATION_SLICES.md) retains 25 parent IDs and separates backend/script readiness from UI completion. After S01, prioritize S05-S09's service/API proofs while engine/headless-helper work follows its own prerequisites. S10a is now nonvisual frontend integration after S09; S10b adds the Tauri shell only after scripts pass. Review/approval/enrollment/report backend gates (S11a/S12a/S13a/S15a/S16a) do not depend on their screens. S20a scripts the full headless journey before S20b capture UI; S21 qualifies the release bundle. This supersedes the earlier shell-first sequencing. No automatic real approval/enrollment is introduced.
 
 ## 14. Decisions that change this diagram
 

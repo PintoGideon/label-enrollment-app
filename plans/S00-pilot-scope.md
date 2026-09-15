@@ -1,6 +1,6 @@
 # S00 — Pilot scope and access decisions
 
-**Status:** Tauri/web UI with retained Python capture confirmed; S00 completion remains blocked on the other decisions and access below.
+**Status:** Tauri/web UI with retained Python capture and backend-first/script-before-UI delivery confirmed; S00 completion remains blocked on the other decisions and access below.
 **Branch:** `slice/s00-pilot-scope`
 **Backlog:** [S00 in IMPLEMENTATION_SLICES.md](../IMPLEMENTATION_SLICES.md#s00---lock-the-pilot-scope-and-unblock-access)
 
@@ -19,7 +19,7 @@ changes, or live enrollment. S01 remains blocked until S00 acceptance passes.
 
 ## Required decisions
 
-**D01a is confirmed; all other entries remain pending**, not defaults that an implementation may silently accept.
+**D01a and D08 are confirmed; all other entries remain pending**, not defaults that an implementation may silently accept.
 For each decision, record the selected value, approving owner, date, and evidence
 or a link to the decision. Keep credentials and private fixture contents out of Git.
 
@@ -34,12 +34,15 @@ or a link to the decision. Keep credentials and private fixture contents out of 
 | D05 | Approved fixtures and ground truth | Supply an approved small flat-stream raw run and representative edge cases, with independently checked label/QR/shield associations. Record permitted storage location, immutable identity, reviewer, and usage restrictions. Use supplied copies outside protected `manifests/`; do not read/change that directory. | Pending |
 | D06 | Nonproduction access and write permission | Arrange a Team-scoped service account via an approved secret manager, existing disposable Collection/Reel UUIDs, and allowlisted S3 prefixes. Record approved APID/AuthD environments, access owner, and explicit permitted test writes, including fingerprint extraction. No production credentials/data are needed. | Pending |
 | D07 | Station, packaging, capacity, and retention | Confirm Windows/camera/driver targets, WebView2 online/offline provisioning and patch ownership, Python-helper/Vimba distribution permissions, real-hardware checks, workload/throughput, and raw/result/checkpoint/approval/receipt retention. | Pending |
+| D08 | Delivery order per capability | Backend -> API -> nonvisual frontend/client integration -> scripted proof -> UI. Backend/API tests start immediately; scripts exercise the same production client/API or helper core before screens. Backend gates do not depend on UI completion. | Confirmed by user, 2026-09-15 EDT, in this planning conversation |
 
 ## Confirmed decision log
 
 **2026-09-15 EDT — user:** “Yes lets do a tauri + web ui ?” in response to the explicit proposal to retain the Python capture engine as a local helper. This confirms D01a only. React/tooling, deployment, scope/data/access and release approvals are not inferred from that message.
 
 Updated design consequences: native Rust owns helper supervision, operator credentials, cloud HTTP and the SQLite transfer journal; Python owns capture/sealing. IPC and helper packaging are new work, not already delivered by `labeltron-cli`. The old `PLAN.md` remains superseded; its clid/local-stitcher architecture is not restored.
+
+**2026-09-15 EDT — user:** requested backend -> API -> frontend -> test via scripting -> UI. D08 records this per-feature delivery order; frontend before UI means nonvisual client/state integration. It supersedes starting S10a with a Tauri shell. The actual Workflow backend, API/state store and acceptance scripts still do not exist; existing APID/stitcher source is not readiness evidence for them.
 
 ## Current proposed pilot boundaries
 
@@ -50,11 +53,12 @@ These summarize the design for review; unresolved required decisions above remai
 - Existing APID Collection and Reel selected by UUID; no automatic destination creation.
 - Freeze crop hashes, identities, physical positions, destination context, and explicit indexing before enrollment.
 - No automatic enrollment, silent gaps/renumbering, local Windows stitcher, camera-driver/trigger rewrite, or multi-segment Reel merging. Reimplementing supported capture controls in the web UI is now in scope.
-- After S01, prove the Tauri shell/fake bridge in S10a and packaged simulator/helper in S17a before integrating hardware. Capture sealing and verified uploads retain their parallel lane; full installer qualification remains S21.
+- After S01, prioritize S05's backend/API/client/script proof and continue through run/import/processing APIs. S17a proves the headless helper independently; S10a frontend integration waits for S09 API proof, and S10b UI waits for S10a scripts. Each later feature repeats this order; full installer qualification remains S21.
 
 ## Completion checklist
 
 - [x] D01a: Tauri/web UI with retained Python capture helper selected by the user; implementation unstarted.
+- [x] D08: backend/API/nonvisual-client/script/UI delivery order selected; no implementation or test success implied.
 - [ ] D01b: frontend framework/tooling confirmed.
 - [ ] D01c: cloud versus Windows-origin enrollment decision approved.
 - [ ] D02: Workflow home/runtime, helper upstream/distribution, compute, service environments, and responsible owners approved.
@@ -79,4 +83,4 @@ branch is merged.
 - After all S00 acceptance conditions pass, create a separate S01 contracts/test-harness branch.
   Live extraction/enrollment remains a later, explicitly authorized opt-in activity.
 
-**Acceptance record:** D01a confirmed; all remaining required decisions/access pending. No Tauri scaffold/native build, helper protocol implementation, or live S3/APID/compute/hardware checks have been performed as part of this slice.
+**Acceptance record:** D01a and D08 confirmed; all remaining required decisions/access pending. No new Workflow backend/API, acceptance script, Tauri scaffold/native build, helper protocol implementation or live S3/APID/compute/hardware check has been completed as part of this slice.

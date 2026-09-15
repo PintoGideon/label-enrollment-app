@@ -31,17 +31,45 @@ and direct APID HTTP calls. No `clid` or local Windows stitcher is bundled.
 
 ## Development status
 
+**The new Workflow backend is not ready: this repository currently contains only planning documents.**
+
+| Component | Current state |
+|---|---|
+| Workflow service, `/pipeline/v1` API, durable job/approval/enrollment store | Not implemented |
+| APID/AuthD | Existing code/contracts reviewed; target live environment and access not validated |
+| Rust stitcher and Python capture core | Existing reusable implementations; identified hardening and integration remain |
+| Headless clients/acceptance scripts, capture helper protocol, Tauri UI | Not implemented |
+
 Application implementation has not started. The backlog begins with **S00:
 lock the pilot scope and unblock access**. Required decisions and approved
 nonproduction fixtures/access must be resolved before starting S01.
 The [S00 decision sheet](plans/S00-pilot-scope.md) is being reviewed on
-`slice/s00-pilot-scope`. The desktop-shell/capture-reuse decision is confirmed;
-remaining scope, framework, environment and access decisions still block S00.
+`slice/s00-pilot-scope`. Desktop-shell/capture reuse and backend-first delivery
+are confirmed; remaining scope, framework, environment and access decisions
+still block S00.
 
 Use a separate branch for each slice. Keep tests, review evidence, and scope
 changes with that slice; do not mark proposed or mocked behavior as validated.
 Creating this repository does not yet decide where the Workflow backend will
 live; that remains an S00 decision.
+
+## Delivery order
+
+Repeat for each small capability:
+
+```text
+Backend -> API -> nonvisual frontend/client integration -> scripted proof -> UI
+```
+
+The frontend stage means reusable client/state logic, not screens. Scripts
+exercise the actual new API/DB or helper/command core through that client,
+assert failure/restart behavior and declare external fakes. Unit/API tests run
+from the start; UI is added only after its script gate passes. Normal tests use
+synthetic fixtures; live writes need separate explicit nonproduction approval.
+
+After S00 and S01 contracts, prioritize S05's backend/project API proof, then
+run-registry/import/processing APIs. The Tauri shell is no longer the first
+implementation target.
 
 ## Local references and sensitive data
 

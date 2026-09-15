@@ -14,6 +14,10 @@ This plan replaces the earlier design; `PLAN.md` is retained only as historical 
 
 The user has selected Tauri + web UI and reuse of the Python capture engine. React + TypeScript + Vite is the recommended frontend stack, not yet a separately approved framework decision. A browser-hosted product and cross-platform camera support are not implied by this choice.
 
+**Backend readiness:** the new Workflow service, `/pipeline/v1` routes, durable jobs/approval/enrollment state and frontend clients are not implemented. This repository currently contains documentation only. Existing APID/AuthD routes, capture code and the Rust stitcher are reusable inputs, not an already integrated backend; live environments/access remain unvalidated.
+
+**Selected delivery order, per feature:** backend -> API -> nonvisual frontend/client integration -> scripted proof -> UI. Domain/API tests start immediately; scripts additionally prove the real new service/state boundary before screens consume it.
+
 The operator still gets one end-to-end desktop experience:
 
 > New run → capture → verified S3 upload → stitch → review → approve → enroll → reconcile/report.
@@ -173,7 +177,7 @@ Do not create a microservice per pipeline stage. API, scheduler, importer and en
 
 The earlier Qt-extension recommendation is superseded by the user's Tauri/web-UI decision. Replace the presentation layer, **not** the camera driver, trigger recipes or cloud stitcher. The Python helper is for capture, not a local stitcher or clid wrapper.
 
-This adds real scope: a packaged headless helper, versioned IPC, bounded preview delivery, native process lifecycle, web UI capture controls and WebView2-aware installation. Prove a minimal Tauri shell with a fake helper and then a packaged simulator helper early after S01, rather than discovering Windows packaging problems at release. See the S10/S17 child gates in [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md).
+This adds real scope: packaged helper/IPC, bounded preview, native lifecycle, web controls and WebView2-aware installation. **Do not start with a Tauri shell.** After S01, prioritize the new backend/API/script path (S05 onward); prove the Python helper and UI-independent native command core through scripts in S17a. S10a integrates the frontend client only after S09 API proof, and S10b adds the shell/screens after that client's scripted gate. This supersedes the earlier shell-first proof sequence without deferring headless helper packaging to release.
 
 ## 4. Operator journey
 
@@ -701,7 +705,8 @@ Proposed desktop layout in this repository; the Workflow backend's repository re
 
 ```text
 apps/desktop/
-  src/                           # web screens and typed native bridge
+  src/client/                    # nonvisual client/state adapters, script-testable
+  src/                           # screens and thin typed native bindings (later)
   src-tauri/
     src/commands/                # narrow validated application commands
     src/capture/                 # helper supervisor + protocol + preview handles
@@ -711,11 +716,14 @@ apps/desktop/
     capabilities/                # permissions for the bundled main webview
     binaries/                    # generated target-specific helper, not Git data
 packages/contracts/              # schemas + TypeScript/Rust/Python golden fixtures
+scripts/acceptance/               # planned headless API/client proofs, not yet built
 ```
 
 Build the capture helper from a pinned, approved `labeltron-two` working branch/package, not by importing `reference/` at runtime or copying that tree into Git. Proposed upstream additions are `src/labeltron/headless/` for the protocol wrapper and `src/labeltron/capture/seal.py` for sealing. The dependency/distribution arrangement and upstream owner must be confirmed in S00. Reuse `BurstRunner`, `RunRequest`, capture events, `CameraSystem`/`CameraDevice`, `SimulatedCameraSystem`, runtime/preflight and settings/layout code. Keep the existing CLI/Qt app working as regression clients of the shared core.
 
-Keep native HTTP, hashing, disk access and subprocess reads off the renderer and GUI event loops. Only the Rust host writes the local upload/command SQLite journal. The helper writes capture files and atomically publishes manifests; the host verifies them before registration/upload. Browser development uses fake native adapters, not an exposed camera-control HTTP server.
+Keep native HTTP, hashing, disk access and subprocess reads off the renderer/GUI event loops and in UI-independent service/library modules. A test-only runner invokes the same production command/client core through HTTP/IPC without a Tauri window; later Tauri bindings stay thin. It is not a second runtime implementation, shipped clid or exposed camera-control HTTP server.
+
+Only the native host writes the upload/command SQLite journal. Python writes capture files and atomically publishes manifests; the host verifies them before registration/upload. Frontend development may use fake native adapters, but those tests alone do not pass the API/script gate. The scripted acceptance flow must use the actual new Workflow process and isolated DB; external storage/runner/APID/auth fakes are declared explicitly.
 
 ### Native/helper protocol and lifecycle
 
@@ -804,13 +812,23 @@ Do not build cloud and local algorithm execution simultaneously for v1. Define t
 
 ## 16. Delivery milestones and acceptance criteria
 
-The actionable backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md): 25 parent slices, with explicit Tauri/helper child gates, dependencies, TODO checklists and exclusions. These milestones describe release outcomes; the slice plan defines execution order, including an existing-S3 path and parallel capture/upload work. No implementation has started.
+The actionable backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md): 25 parent slices with separate backend/API/client/script and UI child gates. These milestones describe outcomes, not permission to build UI before its underlying capability is script-proven. No implementation has started.
 
-The earlier **8–12 week estimate assumed Qt UI/installer reuse and is withdrawn**. Re-estimate after the early Tauri shell and packaged-helper proofs; new UI/IPC work, native packaging, infrastructure access and algorithm qualification are not yet sized.
+```text
+Repeat for one small capability:
+  backend/state -> API -> nonvisual frontend client -> scripted proof -> UI
+      unit tests   contract tests       |                    |
+                                       +--> same client <---+
+                                            later used by UI
+```
+
+Scripts assert IDs, durable state, authorization and relevant restart/ambiguous-outcome behavior, with nonzero exit on failure and redacted evidence. They use actual new services/journals and declared external fakes in CI. Only separately approved nonproduction targets/fixtures enable live writes; a synthetic approval fixture is not permission to approve real labels automatically. API readiness, UI acceptance and live/scientific qualification are distinct gates.
+
+The earlier **8–12 week estimate assumed Qt UI/installer reuse and is withdrawn**. Re-estimate from backend/script and headless-helper proof results, then native/UI packaging evidence; none of this is a delivery commitment.
 
 ### M0 — Verify contracts and de-risk
 
-- Prove the Tauri shell/fake bridge and Windows bundle early after S01; then qualify the packaged Python simulator/helper protocol and safe lifecycle before hardware integration.
+- Establish executable contracts and headless acceptance harnesses; prioritize S05's real service/API proof after S01. Qualify the packaged Python simulator/native command core through scripts independently of a Tauri window.
 - Obtain approved representative raw runs and ground-truth label associations without modifying protected reference manifests.
 - Confirm actual deployed upload prefix, bucket, cloud compute, APID version/entitlements and scan-service availability.
 - Confirm profile, expected DUST slots, serial authority and Reel-position semantics.
@@ -825,8 +843,9 @@ The earlier **8–12 week estimate assumed Qt UI/installer reuse and is withdraw
 - Desktop run IDs, flush/seal protocol, local upload journal and checksum-aware uploads.
 - Workflow auth/project mapping, PostgreSQL schema, outbox, existing-S3 import and state API.
 - Upgrade storage protection and prefix mapping.
+- Add nonvisual clients and scripts for authorized run create/replay/list, backend restart, immutable import and transfer completion; do not wait for a Runs/upload screen.
 
-**Exit:** interrupt capture/upload/app; reopen and recover without silently accepting missing or different bytes. Duplicate completion requests produce one run/processing intent.
+**Exit:** scripted API/journal proof survives interrupts without accepting missing/different bytes or duplicate intents. UI reproduces the proven behavior only after its gate passes.
 
 ### M2 — Cloud processing orchestration
 
@@ -834,28 +853,28 @@ The earlier **8–12 week estimate assumed Qt UI/installer reuse and is withdraw
 - Structured result importer/progress, immutable artifact publishing and quality classifications.
 - Safe exact-version checkpoint recovery; fix cache/path collision defects.
 
-**Exit:** duplicate requests, failed child process, OOM and partial output upload cannot create a false successful result or duplicate active job.
+**Exit:** scripts through the real new API/DB prove duplicate requests, failed child process, OOM and partial publication cannot fake success or duplicate an active job. Controlled runner/storage fakes in CI are distinct from live cloud qualification.
 
 ### M3 — Review and approval
 
-- Run history, virtualized candidate grid, full-resolution/source drill-down.
-- Identity/position/required-slot checks, warning disposition and immutable approval digest.
-- Profile qualification tests, including first/last labels and reverse feed.
+- First implement review/approval persistence and authorized APIs with identity/position/required-slot checks and immutable approval digests.
+- Add nonvisual clients and scripts for synthetic review, stale revision, reprocess invalidation and exact approval payloads; preserve separate ground-truth qualification for first/last labels and reverse feed.
+- Only after the script gates, add run history, candidate grid, full-resolution/source drill-down and approval confirmation over those clients.
 
-**Exit:** a bad association or missing required crop is visibly blocked; reprocessing/editing cannot reuse stale approval.
+**Exit:** backend/script proof blocks bad/missing-slot candidates and stale approval independently of screens; UI then presents the same evidence and decisions.
 
 ### M4 — Direct APID enrollment
 
 - Typed auth/context, Collection/Reel selection, extraction and Label-create adapter.
-- Durable row/extraction checkpoints, pilot/remainder, bounded concurrency, pause/resume and conflict UI.
-- Per-position reconciliation and receipts/reports.
-- Add remote create idempotency before unattended Collection/Reel setup, or retain supervised existing-Reel selection.
+- Durable row/extraction checkpoints, pilot/remainder, bounded concurrency, pause/resume APIs and per-position reconciliation/receipts/reports.
+- Script the shared clients through lost-success/restart/conflict scenarios before implementing Pilot/Enroll/Results screens. The backend lane depends on S11a/S12a/S13a/S15a/S16a gates, not UI completion.
+- Then add confirmation/progress/conflict UI over the tested clients. Add remote create idempotency before unattended Collection/Reel setup, or retain supervised existing-Reel selection.
 
 **Exit:** simulate a lost response after a server commit; resume resolves the original Label without duplication or changing positions. Existing compatible/conflicting enrollment scenarios are covered.
 
 ### M5 — Production hardening and pilot
 
-- Web capture-control parity and integrated journey; signed Tauri/helper installer, WebView2/Vimba preflight, supported Windows/camera tests, upgrades/rollback and credential renewal.
+- First prove the nonvisual full capture-to-report journey in S20a; then add capture-control parity/integrated UI in S20b. Qualify the signed Tauri/helper installer, WebView2/Vimba, supported Windows/camera tests, upgrades/rollback and credential renewal.
 - Fleet/job caps, monitoring, backups/retention, security/authorization tests and runbook.
 - Complete a full real Reel, independently verify association quality and reconcile intended versus actual APID state.
 
@@ -866,7 +885,8 @@ The earlier **8–12 week estimate assumed Qt UI/installer reuse and is withdraw
 | Layer | Essential tests |
 |---|---|
 | Capture | Existing simulator/golden core behavior retained; web-control parity; Unicode Windows paths; disk full; writer timeout; crash before seal; dropped frames |
-| Tauri/helper | Fake native adapter; protocol mismatch/malformed output; stdout/stderr backpressure; preview saturation; duplicate start; renderer reload; helper/native crash; EOF/stop/flush; camera owner exclusion |
+| Scripted acceptance | Same production client/API/IPC core; actual isolated Workflow DB/journals; declared external fakes; exact IDs/digests/state, negative auth, replay/restart, nonzero failures and redacted evidence; separate opt-in live writes |
+| Tauri/helper | Headless helper/native-client script proof before UI; protocol mismatch/malformed output; stdout/stderr backpressure; preview saturation; duplicate start; renderer reload; helper/native crash; EOF/stop/flush; camera owner exclusion |
 | Upload | Same-size changed object, larger stale remote object, expired URL, token expiry, >500 files, pagination, partial batch, restart, duplicate completion, attempted namespace escape |
 | Stitch runner | Child exit propagation; missing crop with exit 0; wrong orientation/profile; native crash/OOM; result upload failure; zero labels |
 | Checkpoints | Same filenames/different bytes, model/profile/image change, truncated JSONL repaired before append, no retained PVC, missing composite, repeated resume |
@@ -894,6 +914,8 @@ Algorithm correctness acceptance should be based on verified label↔QR↔DUST c
 
 ### First code slice and early proofs
 
-After S00 acceptance, start **S01: executable contracts, canonical identities/digests and safe fake adapters**, including the native/Python helper boundary. Then prove the Tauri shell in S10a and the packaged capture helper in S17a alongside engine/backend work.
+After S00 acceptance, start **S01: executable contracts, canonical identities/digests and headless test-harness conventions**. Then prioritize **S05: backend service + authorized project API + nonvisual client + scripted proof**. S02 engine hardening and S17a headless helper can proceed independently.
+
+Continue S06-S09 backend/API proofs. Only then integrate the nonvisual frontend client in S10a and add Tauri screens in S10b after scripts pass. Review, approval, enrollment and reporting each repeat the same order; their backend/script gates do not depend on prior UI completion.
 
 S04 remains the early opt-in direct-APID proof after its inherited gates: a known approved S3 run -> pinned stitcher -> verified crop -> one nonproduction Label. Do not confuse that demonstration with the first code ticket or full product approval. Build the new presentation layer without rewriting camera recipes, replacing the stitcher, or shipping clid.
