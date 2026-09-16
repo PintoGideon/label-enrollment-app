@@ -10,7 +10,8 @@ Throughout this document, `reference/<checkout>` is shorthand relative to that
 external container, not a path inside the application repository. All 12 checkout
 HEADs and worktree top-level paths were verified using Git metadata only; linked
 worktree pointers were repaired. No source or protected manifest was inspected or
-edited during relocation. The harness Go module is a separate `harness/` sibling.
+edited during relocation. The harness was originally a separate `harness/`
+sibling; its current designated home is `../label-enrollment-harness/`.
 
 The requested capture/cloud-sync URLs are two branches of the same repository. The existing capture clone was fetched, the Windows branch was added as a detached worktree, and the new stitcher repository was cloned. Existing clid/APID clones were fetched and their current main revisions opened in separate worktrees to verify direct HTTP contracts without disturbing the older checkouts.
 
@@ -23,7 +24,10 @@ The requested capture/cloud-sync URLs are two branches of the same repository. T
 | [dustid/apid · main](https://github.com/dustid/apid) | `c7d52b30b672bfd11fa2fa9b1a543d5097d5e495` | `reference/apid--review` | Server routes, request schemas, authorization and reconciliation |
 | [dustid/labeltron · jhodges/aws-app](https://github.com/dustid/labeltron/tree/jhodges/aws-app/aws-app) | `1c70e28f17d54f012aad871a78695c028b5a6769` | `reference/labeltron--aws-app` | Existing support-service snapshot: upload API and CDK configuration; not independently verified as the current deployed revision |
 
-All source references below refer to these commits. Feature branches and deployed APIs may subsequently change.
+Source references in sections 2–4 refer to these commits. Feature branches and
+deployed APIs may subsequently change. The later AuthD identity review is
+recorded separately in [the authentication decision](plans/authentication-boundaries.md);
+it must not be attributed to an AuthD revision in this table, which contains none.
 
 ### Existing historical references retained
 
@@ -213,7 +217,14 @@ No Tauri scaffold/build, Windows helper bundle, IPC smoke test, WebView2 verific
 
 On 2026-09-15 EDT the user requested backend -> API -> frontend integration -> scripted proof -> UI per capability. [D08](plans/S00-pilot-scope.md) records this and the backlog now separates nonvisual client/script gates from screens. It supersedes the earlier shell-first sequence.
 
-On `main`, the tracked files are still Markdown planning documents and `.gitignore`. The `slice/s01a-backend-foundation` branch adds a Go Workflow module under `apps/workflow/` with liveness and fail-closed readiness probes, a probe-only client and unit tests; its smoke driver has been moved outside the repository to a local-only sibling folder; PostgreSQL pooling/migrations/readiness are now implemented, but `/pipeline/v1` routes, authentication, new helper protocol and UI remain pending. APID/AuthD and stitcher/capture source review establishes reusable interfaces, not deployed readiness or completion of the new backend. No new backend acceptance script has been run; the S01a smoke driver is a foundation check, not the S05 acceptance script. Document/link/dependency checks must not be reported as runtime tests.
+The `slice/s01a-backend-foundation` branch at `23df567` contains a Go Workflow
+module under `apps/workflow/` with liveness and database-aware readiness probes,
+a probe-only client and unit tests. Local smoke/persistence drivers live outside
+the repository. PostgreSQL pooling/migrations/readiness are implemented, but
+`/pipeline/v1` routes, authentication, helper protocol and UI remain pending.
+Source review establishes reusable interfaces, not deployed readiness. The
+foundation smoke/persistence evidence is not the authenticated S01a/S05
+acceptance proof. Document/link/dependency checks are not runtime tests.
 
 ### Go/pnpm foundation checkpoint
 
@@ -241,3 +252,20 @@ the pending authenticated project API. This is local evidence, not full S01/S05
 or shared CI acceptance.
 GitHub build/unit-test CI is configured but not yet executed/validated. No UI, live enrollment,
 reference-source modification or scientific qualification is implied.
+
+### AuthD/ownership plan reconciliation — 2026-09-15
+
+The user requested updated plans after the system-design walkthrough. The
+[identity decision](plans/authentication-boundaries.md) records the previously
+confirmed single AuthD login and accountable human owner. Target diagrams and
+backlog now use a Workflow-audience user token and a separate APID-audience
+service executor; human attribution uses verified issuer/subject references.
+Google OAuth references in the capture evidence describe the legacy source,
+whose upload authorization must be adapted or replaced in S18/S19.
+
+The next bounded local increment is [S01a project listing](plans/S01a-authenticated-projects.md):
+JWT/JWKS verification, one membership-filtered project-list route, one Go client method and isolated
+actual-service proof. This reconciliation changes Markdown only. No new source
+review, auth implementation, live integration, deployment, tests or parent-gate
+acceptance is implied. The remaining S00 decisions and foundation migration/CI
+follow-ups stay open.

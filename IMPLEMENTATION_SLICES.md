@@ -5,8 +5,21 @@
 Architecture: [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md).
 Detailed design: [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md).
 Source baseline: [SOURCES.md](SOURCES.md).
+Identity decision: [AuthD login and accountable human ownership](plans/authentication-boundaries.md).
 
 This document is the execution-order and TODO reference. The other documents explain the architecture; they are not competing task trackers.
+
+### Next implementation increment — S01a list authorized projects
+
+**[One endpoint and one client method](plans/S01a-authenticated-projects.md):**
+AuthD-verified `GET /pipeline/v1/projects`, membership-filtered SQL and
+`ListProjects`. Base `23df567`; suggested branch `slice/s01a-project-list`.
+No feature code yet. Detail/readiness and other S05 work follow separately.
+
+All integration proof lives in `../label-enrollment-harness/`; only focused
+unit/contract tests accompany application code. Keep planning/relocation separate
+from the feature PR. The linked ticket owns scope and acceptance; broader
+S00/S01/S05 gates and foundation migration/CI follow-ups remain open.
 
 ## 1. How we will build
 
@@ -20,15 +33,13 @@ A slice should normally fit in a few focused engineering days and one or a few s
 
 ### Current local test-tooling policy
 
-Per the user's cleanup request, temporary setup/integration harnesses, fixture
-generators and scratch scripts belong in `../label-enrollment-app-tests/harness/`, outside
-Git and the pnpm workspace. Do not add project `scripts/`, smoke commands or DB
-harness packages now. Ordinary source-adjacent unit tests and standard build/test
-CI remain. Scratch drivers must call the actual service/client—not copy backend
-logic—and the application/CI must never depend on that sibling folder. Formal
-committed integration harnesses will be added later when requested; distinguish
-local-only evidence from repeatable shared CI/release acceptance. This changes
-harness placement, not the requirement to test backend behavior before UI.
+All setup/integration harnesses, fixture generators, drivers and reports belong in
+`../label-enrollment-harness/`, outside this repository and pnpm workspace.
+Ordinary source-adjacent unit/contract tests remain; process/database/issuer
+orchestration stays external. Harnesses call the actual service/public client,
+with no copied backend or reverse production/CI dependency. Keep harness changes
+and broad planning updates separate from feature PRs. Record concise commands,
+outcomes and limits in review evidence; full logs belong in the harness folder.
 
 ### Required delivery order within a feature
 
@@ -57,6 +68,7 @@ The S01a local PostgreSQL proof has passed outside the repository; authenticated
 ### Initial scope, subject to S00 approval
 
 - **Selected:** Tauri v2 + bundled web UI, retaining the existing Python capture engine as a local helper. React/TypeScript/Vite is proposed, pending framework confirmation. The Workflow backend runtime is Go (user confirmed 2026-09-15).
+- **Selected identity/ownership:** one AuthD login; the verified human remains responsible. The target cloud executor uses a separate APID-audience service token. Client/audience registration, action-permission lookup, deployment and upload-auth transition remain qualification work under S00/S05/S10a/S18.
 - Cloud Rust stitcher; cloud worker makes direct APID HTTP calls; no clid binary.
 - One approved label profile and flat continuous streams first.
 - One capture run / selected processing attempt per enrollment plan.
@@ -86,7 +98,7 @@ The checkouts are now at `../label-enrollment-app-tests/reference/`, outside the
 
 ## 3. Slice index and dependencies
 
-**S00 is in decision review**: desktop/capture reuse, delivery order, Go orchestration and pnpm workspace tooling are confirmed; other prerequisites remain pending. See the [decision sheet](plans/S00-pilot-scope.md). The build kickoff started bounded local groundwork in [S01a](plans/S01a-backend-foundation.md); its Go service/PostgreSQL persistence checkpoint is implemented and locally proven, but signed identity and project APIs remain pending. All full parent gates below remain unpassed. Dependencies mean acceptance, not merely code existence; this groundwork does not authorize pilot-dependent or live-write work.
+**S00 is in decision review**: desktop/capture reuse, delivery order, Go orchestration, pnpm workspace tooling and the AuthD/human-ownership model are confirmed; other prerequisites remain pending. See the [decision sheet](plans/S00-pilot-scope.md). The build kickoff started bounded local groundwork in [S01a](plans/S01a-backend-foundation.md); its Go service/PostgreSQL persistence checkpoint is implemented and locally proven, but signed identity and project APIs remain pending. All full parent gates below remain unpassed. Dependencies mean acceptance, not merely code existence; this groundwork does not authorize pilot-dependent or live-write work.
 
 Keep the 25 parent IDs stable. Child gates separate backend/API/client/script readiness from UI completion; a downstream backend depends on the former, not on a screen. A parent passes only after its final child and inherited prerequisites pass. Parent numbers identify scope, not a mandatory serial execution order.
 
@@ -182,7 +194,7 @@ Every implementation slice must satisfy all of these, in addition to its own TOD
 
 - [ ] Scope, owner, affected repo/branch and acceptance cases agreed before coding.
 - [ ] B/A/C/T/U order followed where applicable; backend/API/client/script gate accepted before its UI work. Record any inapplicable layer explicitly.
-- [ ] Happy/failure-path unit tests and headless proof recorded; use the current external-folder policy for temporary harnesses. Formal committed integration harnesses are deferred until requested. Local scratch results are not shared CI/release acceptance; real network/hardware writes remain separately opt-in.
+- [ ] Focused unit/contract tests and headless proof recorded; all integration harnesses/fixtures/reports live in `../label-enrollment-harness/`. Record concise review evidence without importing harness machinery into the feature PR. Local results are not shared CI/release acceptance; real network/hardware writes remain separately opt-in.
 - [ ] Schema changes have migrations/compatibility tests where applicable; no hand-edited generated APID artifacts.
 - [ ] Authorization, bounded resources, secret redaction and safe path handling included where first introduced.
 - [ ] State-changing operations have durable intent and defined retry/cancel behavior; no false exactly-once claims.
@@ -207,6 +219,8 @@ TODO:
 - [ ] Confirm frontend framework/tooling proposal and cloud enrollment worker versus Windows-origin enrollment; record these separately from the shell and delivery-order decisions.
 - [x] Confirm the Workflow runtime: Go (user confirmed 2026-09-15; no implementation completeness implied).
 - [x] Use pnpm for workspace tasks/future web dependencies; retain Go modules for backend dependencies (user confirmed 2026-09-15).
+- [x] Record one AuthD login and accountable human ownership, with separate service execution (S00 D10; design agreement only).
+- [ ] Record issuer/native-client/Workflow-audience setup and owners for current org/Team permissions and upload-auth transition. Keep runtime qualification in S05/S10a/S13/S18/S19; do not make those implementations prerequisites of S00.
 - [ ] Confirm the Workflow repository home, capture-helper upstream/distribution/owners, operated EKS versus Batch/ECS, nonproduction endpoints and owners.
 - [ ] Choose the initial profile, required DUST slots, serial authority and reference-data version.
 - [ ] Define scan-order/reference-order/APID-position mapping, including reverse feed and endpoint labels; define indexing and no-gap policy.
@@ -289,12 +303,17 @@ TODO:
 **Outcome:** a minimal service knows who the operator is and which project they may access.
 **Depends on:** S01. **Area:** Workflow `auth/`, service entry point and development deployment.
 **Current placement:** production migrations/database/auth code belongs here; temporary PostgreSQL setup and API proof drivers belong in the separate local test folder, not new project harness packages.
+**Next bounded increment:** [S01a project listing](plans/S01a-authenticated-projects.md)
+implements only the local project-list auth/API/client proof. Project detail and
+readiness changes follow separately. Its completion
+does not pass S05's inherited S00/S01 or remaining context/permission gates.
 
 TODO:
 - [x] Implement startup, configuration, pgx pooling, Goose SQL migrations and sqlc-generated database readiness queries (S01a local proof). Generated-code checks run with unit/build CI; overall authorized-API readiness remains pending and temporary DB provisioning stays outside this repo.
-- [ ] Validate Google token issuer, audience, signature and lifetime using maintained libraries; do not build a new authentication system.
-- [ ] Map authenticated subjects to authorized projects and server-owned S3/APID context. Reject arbitrary client-supplied Team, bucket or image choices.
-- [ ] Add `GET /pipeline/v1/projects`, basic roles for capture/process/review/enroll, request IDs and redacted structured logging.
+- [ ] Validate AuthD signatures, configured issuer/Workflow audience and lifetime using maintained JWT/JWKS libraries; bound trusted HTTPS key retrieval/cache/refresh and fail closed. No new identity provider or auth bypass.
+- [ ] Map verified `(issuer, subject)` to PostgreSQL project membership for read-only discovery; recognize human/service principals without treating a service token as human approval.
+- [ ] Add project list/detail, bounded UUID-keyset pagination, deterministic capture/process/review/enroll roles, non-disclosing 404s, server request IDs and redacted structured logging; implement truthful project-API readiness.
+- [ ] Before enabling commands, qualify current org/Team/action permission lookup and server-owned S3/APID context. Org claims, readable Team lists and client-supplied Team/bucket/image choices are not sufficient authority. Keep this outside the read-only S01a increment.
 - [ ] Test missing/expired/wrong-audience tokens, a disallowed project and attempted destination escalation; fail closed outside explicitly isolated tests.
 - [ ] Define the backend API/worker roles in one codebase and establish a nonproduction smoke deployment or local isolated equivalent.
 
@@ -309,7 +328,8 @@ TODO:
 **Depends on:** S05. **Area:** Workflow `runs/`, PostgreSQL, outbox/events.
 
 TODO:
-- [ ] Add runs and minimal command/outbox/event tables with project ownership, input revision, origin, capture metadata and actual storage locator.
+- [ ] Add runs and minimal command/outbox/event tables with project ownership, input revision, origin, capture metadata and actual storage locator. Derive responsible human and initiator from verified AuthD issuer/subject at cloud registration; no submitted owner IDs or user tokens in rows/events/jobs.
+- [ ] Reauthorize run commands using S05's qualified action/context policy. Preserve owner attribution across app closure, renewal and actions by another authorized person; offline captures gain an authenticated cloud owner only at registration. Test spoofed ownership and cross-principal actions; ownership transfer is deferred.
 - [ ] Add idempotent `POST /pipeline/v1/runs`, authorized paginated list/detail, revision checks and stable command IDs.
 - [ ] Return the original result for a repeated identical command; reject reuse of a command ID with changed semantics.
 - [ ] Make state transition + durable event/outbox writes transactional; add safe event pagination/cursors for polling.
@@ -347,6 +367,7 @@ TODO:
 TODO:
 - [ ] Add attempts/job leases and start/status/cancel routes; pin input digest, asset bundle, image digest and profile before enqueueing.
 - [ ] Implement one runner adapter for the S00 runtime, including minimal nonproduction IAM, storage and central logging; do not implement EKS and Batch simultaneously.
+- [ ] Use scheduler workload permissions for configured job submission/observation and separate stitcher IAM for approved S3 scopes. Jobs receive no human AuthD token or APID secret; the app needs no cluster credentials or arbitrary job YAML. Persist authorized initiating actor and runtime identity separately.
 - [ ] Stage only inventory-referenced versions/bytes; use validated SDK parameters and collision-free scratch paths, not user-controlled shell strings.
 - [ ] Make job identity deterministic per attempt; recover a create-call timeout by discovering that job before submitting anything else. Persist runtime IDs and fence stale callbacks.
 - [ ] Watch actual runtime exit/conditions/heartbeat and bounded phase progress; configure CPU/memory/disk/deadline/fleet limits.
@@ -382,7 +403,7 @@ TODO:
 **Depends on:** S10b (inherits S10a and S09). **Area:** UI-independent native auth/Workflow services and frontend state adapter, then proposed `apps/desktop/` shell/screens.
 
 TODO:
-- [ ] S10a: implement the nonvisual frontend/native adapter over proven S09 APIs: allowlisted Workflow/project selection, native system-browser/PKCE callback validation, expiry/re-login, OS credential storage, durable command IDs and reconnect/state mapping. Keep these modules usable from a headless test runner; no tokens in renderer/helper.
+- [ ] S10a: implement the nonvisual frontend/native adapter over proven S09 APIs: allowlisted Workflow/project selection, AuthD system-browser/PKCE callback validation with registered native client and Workflow audience, renewal/re-login, OS credential storage, durable command IDs and reconnect/state mapping. Keep these modules usable from a headless test runner; no tokens in renderer/helper and no second Google login. Record live issuance/renewal qualification separately from synthetic proof.
 - [ ] S10a: script import/start/poll/cancel/reconnect and denial/expiry/repeated-command cases through that same adapter and actual isolated API/DB. A fake UI adapter alone does not pass the gate.
 - [ ] S10b, only after S10a passes: create the minimal Tauri/bundled UI, bind the tested command core, configure explicit custom-command/window permissions and CSP, and test denied generic shell/file/URL access plus Windows/WebView2 smoke installation.
 - [ ] Add Runs list, existing-S3 import action and run detail, including input status, profile, attempt history and capture-loss uncertainty.
@@ -400,7 +421,7 @@ TODO:
 **Depends on:** S11b; S11a depends on S09, while S11b depends on S10 and S11a. **Area:** Workflow `reviews/`, nonvisual review client, then Desktop Review screen.
 
 TODO:
-- [ ] S11a/B-A: persist accept/reject/needs-recapture decisions with reviewer, reason and expected revision; expose authorized review/reprocess APIs and reject stale/concurrent overwrites.
+- [ ] S11a/B-A: persist accept/reject/needs-recapture decisions with verified reviewer issuer/subject, reason and expected revision; expose authorized review/reprocess APIs and reject stale/concurrent overwrites. Derive actors server-side and preserve the run's responsible owner.
 - [ ] Apply approved reference-data/QR validation server-side; preserve exact QR values, reject unsupported stock/profile mismatches, and attach reviews to immutable outputs. No fallback image, lossy conversion or identity edit without new revision/provenance.
 - [ ] S11a/C-T: implement the review client and script candidate inspection, synthetic review decisions, stale revisions, missing slots and reprocess invalidation through the APIs; test neighbor-QR/endpoint/duplicate examples against approved ground truth. Never synthesize approvals for real runs from structural test success.
 - [ ] S11b/U: add virtualized grid, full crops, selected slots, source neighbors, serial/QR provenance and exception filters/counts over that proven client; add UI error/reload tests.
@@ -418,7 +439,7 @@ TODO:
 - [ ] Implement the S00 mapping from candidate scan index/reference ordinal to explicit positive APID position; return reverse-feed/range interpretation for explicit client confirmation.
 - [ ] Reject duplicate/occupied/unresolved positions and required-label gaps by policy; never silently compact, append or reverse positions.
 - [ ] Validate every selected crop and identity/review revision server-side; freeze artifact hashes, member definitions, target context and explicit indexing into the approval digest.
-- [ ] Persist plan/rows and approving subject transactionally; enforce idempotent approval commands and stale-revision rejection.
+- [ ] Persist plan/rows and verified human approving issuer/subject transactionally; enforce idempotent approval commands and stale-revision rejection. Recheck current action/context authority; a submitted actor header or service token cannot impersonate a human approver.
 - [ ] S12a/C-T: implement the nonvisual target/approval client and script synthetic review -> plan -> validate -> approve; repeated intent yields the same ID/digest. Changed crop/identity/position/Team/Reel/indexing invalidates approval. Assert zero APID mutations from planning.
 - [ ] S12b/U: implement destination pickers, position/range display and exact-plan approval confirmation over that tested client; keep approval explicit and server-authoritative.
 
@@ -432,6 +453,7 @@ TODO:
 
 TODO:
 - [ ] Add plan/row claim with exclusive target-Reel ownership, intent-before-send checkpoints and idempotent Start Pilot command.
+- [ ] Persist verified human enrollment requester and approved-plan reference; identify the AuthD service executor on attempts/receipts separately. Check qualified permissions, destination and cancellation/revocation policy before dispatch; queue durable intent without user tokens. Define/test continued approved work after UI logout or closure.
 - [ ] Read only frozen approved crops and verify bytes/context immediately before use; checkpoint each slot's extraction ID with content digest.
 - [ ] Create the Label with all named DUST/TEXT/QR members, its final explicit position and explicit wire indexing through the S04 adapter.
 - [ ] Validate returned Reel/position/live identifiers/values/indexing and persist crop-to-fingerprint-to-Label/member receipt before marking verified.
@@ -519,6 +541,7 @@ TODO:
 
 TODO:
 - [ ] Add authorized upload-batch and complete-upload routes bound to one registered run/input inventory; keep one authority for key allocation and signing.
+- [ ] Use the AuthD-authorized Workflow boundary as the signing entry point. Adapt or replace legacy Google-only upload authorization; do not assume it accepts AuthD tokens. Test one-login authorization, project/key denial and expiry before claiming complete capture/upload integration.
 - [ ] Define safe canonical keys, signed checksum headers/receipts and exact size validation; use pinned versions or conditional immutable writes so outstanding URLs cannot alter sealed inputs.
 - [ ] Mint bounded windows of at most the supported batch size; renew expired URLs without changing object identity. Existing same bytes may be acknowledged; conflicting bytes must be rejected.
 - [ ] Reuse S07 inventory verification and DB/outbox commit behavior; do not trust the client saying uploaded or treat ETag as a universal content hash.
@@ -653,16 +676,19 @@ These gates refine M0-M5. S04 remains the early opt-in adapter proof, not eviden
 - [ ] F05: automatic Collection/Reel creation. Requires server-supported idempotency or an explicitly supervised ambiguous-create resolution workflow; names are not unique.
 - [ ] F06: local Windows stitcher runner or Windows-origin APID enrollment if the selected product requirements change.
 - [ ] F07: SSE/progressive fine-grained engine events, retained-volume optimization and fleet updates, driven by measured need.
-- [ ] F08: profile-tuning UI, automatic acceptance/enrollment or operator identity federation beyond the initial Google/workflow and service-account boundary.
+- [ ] F08: profile-tuning UI, automatic acceptance/enrollment or additional identity-provider federation beyond the selected AuthD human/workload model.
 
 A feature moves into the initial scope only with an explicit decision, revised dependency/acceptance criteria and any new security/scientific qualification work. Do not hide it inside another slice.
 
-## 8. Before coding the first slice
+## 8. Next increment and remaining parent gates
+
+- [x] Reconcile the architecture/backlog with the selected AuthD login and human ownership; preserve source-review/runtime limits.
+- [ ] Implement the bounded [S01a project-list increment](plans/S01a-authenticated-projects.md) after foundation `23df567`: verifier -> API -> Go client -> isolated proof. No live environment or UI is needed for this increment.
 
 - [ ] Review and approve the proposed architecture and initial scope in this document.
 - [ ] Complete S00's decision sheet, especially required DUST slots, serial source, physical positions, indexing and operated cloud runtime.
 - [ ] Confirm repositories/owners and where approved non-secret fixture copies will live.
-- [ ] Select S01 as the first code slice after S00; do not start the entire service/UI in one change.
+- [ ] After S00, complete S01's broader contracts/fixtures beyond the bounded S01a groundwork; do not start the entire service/UI in one change.
 - [ ] After S01, prioritize S05's backend/API/client/script proof; S02 engine work and S17a headless helper can proceed independently. Continue S06-S09 API proofs before S10a frontend-client integration and S10b Tauri UI. Run S04 only after its engine/fixture/access gates; do not introduce shell-first dependencies.
 
-For each future slice handoff, record: `owner`, `status`, `dependencies passed`, `scope`, `PR(s)`, `test evidence`, `demo`, `known limitations`, `reviewer`. S01a is **in progress** on `slice/s01a-backend-foundation` with a Go/pnpm PostgreSQL persistence foundation; no full parent gate has passed. Other implementation work remains unstarted.
+For each future slice handoff, record: `owner`, `status`, `dependencies passed`, `scope`, `PR(s)`, `test evidence`, `demo`, `known limitations`, `reviewer`. S01a's foundation is committed on `slice/s01a-backend-foundation`; authenticated project discovery is its next unimplemented increment, with suggested branch `slice/s01a-project-list`. No full parent gate has passed. S06 follows S05 acceptance, then S07 verified import and S08/S09 processing/results according to their dependencies; existing migration/CI follow-ups remain tracked separately.

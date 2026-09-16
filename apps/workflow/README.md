@@ -188,8 +188,9 @@ Client tests use explicit `httptest` response fixtures; `pnpm check` needs no DB
 GitHub CI checks generated SQL code and builds/tests the application without any
 local-only folder dependency. Remote CI execution is not yet validated.
 
-Temporary integration code is in `../label-enrollment-app-tests/harness/` relative
-to the repository root. Its own Go module consumes public API/client code using a
+Existing integration code remains in `../label-enrollment-app-tests/harness/`;
+the requested destination is `../label-enrollment-harness/` relative to the
+repository root. Relocation is separate and has not occurred. Its Go module consumes public API/client code using a
 local replacement. It builds the actual service and owns an isolated PostgreSQL
 cluster. Proven locally: sqlc-backed read-only readiness, no startup migration,
 retired-ledger rejection, per-file rollback on DDL collision, concurrent/repeated
@@ -201,6 +202,13 @@ References are separately under `../label-enrollment-app-tests/reference/`, outs
 both the app and harness modules. Never recursively run Go tools from that parent
 container or inspect the stitcher's protected `manifests/` directory.
 
-Next: signed identities, authorized project queries/endpoints and their Go client
-methods. Then the durable run registry. S00/full S01/S05, live service, scientific
-and UI acceptance remain separate. No project harness scripts are introduced.
+Next: [S01a project listing](../../plans/S01a-authenticated-projects.md)
+after foundation `23df567`: AuthD JWT/JWKS verification for the configured Workflow
+audience, one membership-filtered project-list route, one Go client method and
+proof in `../label-enrollment-harness/` relative to the repository root. Detail
+and readiness changes follow separately. Auth code
+is not implemented yet. The [identity decision](../../plans/authentication-boundaries.md)
+defines single login and human accountability; run/approval ownership schema comes
+later. S06 run registry follows S05 acceptance. S00/full S01/S05, live service,
+scientific and UI gates remain separate. All integration harnesses remain outside
+the project; focused source-adjacent unit/contract tests stay with the code.

@@ -24,6 +24,12 @@ The cloud Workflow backend is a Go service; the runtime was confirmed on
 2026-09-15. **pnpm manages workspace tasks and future web packages**, not Go
 dependencies or the deployed backend runtime.
 
+The selected identity model is **one AuthD login with an accountable human
+owner**. Native Rust holds the operator's Workflow token; background enrollment
+uses a separate AuthD service token for APID. Ownership records use verified
+issuer/subject identities, never stored user tokens. The legacy Google-only
+upload flow must be adapted before the complete one-login journey is available.
+
 ## Documents
 
 - [Detailed design](DESKTOP_APP_PLAN.md)
@@ -32,7 +38,9 @@ dependencies or the deployed backend runtime.
 - [Source revisions, evidence, and verification limits](SOURCES.md)
 - [Historical plan — superseded](PLAN.md)
 - [Go service development guide](apps/workflow/README.md)
-- [Current S01a ticket and test evidence](plans/S01a-backend-foundation.md)
+- [S01a foundation checkpoint and test evidence](plans/S01a-backend-foundation.md)
+- [Next increment: S01a list authorized projects](plans/S01a-authenticated-projects.md)
+- [AuthD login, human ownership and workload boundaries](plans/authentication-boundaries.md)
 
 ## Development status
 
@@ -51,7 +59,8 @@ S01a Go backend foundation on `slice/s01a-backend-foundation`. The backlog
 still begins with **S00: lock the pilot scope and unblock access**; its
 unresolved decisions and access block S01/S05 acceptance, not local groundwork.
 The [S00 decision sheet](plans/S00-pilot-scope.md) records desktop-shell/capture
-reuse, backend-first delivery, Go orchestration and pnpm workspace tooling as confirmed;
+reuse, backend-first delivery, Go orchestration, pnpm workspace tooling and the
+AuthD/human-ownership model as confirmed;
 remaining scope, framework, environment and access decisions still block S00.
 
 Use a separate branch for each slice. Keep tests, review evidence, and scope
@@ -59,6 +68,18 @@ changes with that slice; do not mark proposed or mocked behavior as validated.
 Creating this repository does not yet decide where the Workflow backend will
 live; that remains an S00 decision. The S01a Go foundation is developed under
 `apps/workflow/` here in the meantime.
+
+## Next implementation increment
+
+**[S01a — list authorized projects](plans/S01a-authenticated-projects.md)**:
+one authenticated `GET /pipeline/v1/projects`, one sqlc query over the existing
+membership tables and one Go client method. Continue from `23df567` on suggested
+branch `slice/s01a-project-list`. Feature code is not implemented yet.
+
+All integration drivers/fixtures/reports belong in `../label-enrollment-harness/`.
+Keep this planning/relocation work separate from the feature PR. Project detail,
+readiness changes, migration/CI cleanup and UI are follow-ups. S00/S01/S05 remain
+open; this local proof needs no live credentials.
 
 ## Workspace and backend development
 
@@ -100,27 +121,32 @@ been removed. Standard source-adjacent unit tests remain in the repository.
 
 ### Local-only setup checks
 
-Per the current development policy, temporary smoke/integration harnesses,
-fixture generators and scratch reports stay in the sibling folder
-`../label-enrollment-app-tests/`, **outside this repository and its workspace**.
-They are not committed; application builds and CI must not depend on them.
-Formal in-repository harnesses will be added later when requested.
+**Location status:** `../label-enrollment-harness/` is the requested destination.
+The existing drivers have not moved from `../label-enrollment-app-tests/harness/`.
+The commands below describe the target layout after a separate relocation;
+current drivers still use `-repo ../../label-enrollment-app` from their old folder.
+
+All smoke/integration harnesses, fixture generators, setup scripts and reports
+belong in **`../label-enrollment-harness/`**, outside this repository and its pnpm
+workspace. Application builds and CI do not depend on it. Focused unit/contract
+tests remain next to the application source; process/database orchestration stays
+in the external harness.
 
 On this workstation, an optional check is:
 
 ```sh
-cd ../label-enrollment-app-tests/harness
-GOTOOLCHAIN=local GOWORK=off GOPROXY=off go run ./cmd/smoke -repo ../../label-enrollment-app
+cd ../label-enrollment-harness
+GOTOOLCHAIN=local GOWORK=off GOPROXY=off go run ./cmd/smoke -repo ../label-enrollment-app
 # With PostgreSQL binaries available (PG_BIN can specify their directory):
-GOTOOLCHAIN=local GOWORK=off GOPROXY=off go run ./cmd/persistence -repo ../../label-enrollment-app
+GOTOOLCHAIN=local GOWORK=off GOPROXY=off go run ./cmd/persistence -repo ../label-enrollment-app
 ```
 
 These local drivers build/start the actual service and use its Go client over
 HTTP, without copying backend code or importing private packages. Persistence
 checks own their temporary database, test migration rollback/replay and outage
 recovery, then clean up. Results are local evidence, not authentication or shared
-CI acceptance. The harness module is separate from the sibling `reference/`
-directory, so Go test discovery does not traverse reference sources.
+CI acceptance. Reference sources remain separately under
+`../label-enrollment-app-tests/reference/`; Go test discovery never traverses them.
 
 ## Delivery order
 

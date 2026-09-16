@@ -5,6 +5,9 @@
 Detailed implementation plan: [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md).
 Slice-by-slice TODOs and dependencies: [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md).
 Verified source contracts and findings: [SOURCES.md](SOURCES.md).
+Current identity decision: [AuthD and accountable human ownership](plans/authentication-boundaries.md).
+Next local increment: [S01a project listing](plans/S01a-authenticated-projects.md),
+after foundation `23df567`; implementation and authenticated API proof are pending.
 
 ## 1. Core decision
 
@@ -25,8 +28,16 @@ One desktop experience, with different responsibilities on the station and in th
 - Reuse the Python camera/capture core in a supervised helper; preserve camera recipes and simulator/golden behavior. Native Rust owns credentials, IPC, cloud HTTP and the upload journal.
 - Run the existing Rust/OpenCV stitcher as a cloud job, near S3.
 - Add a Go workflow backend for jobs, review, approval, progress and recovery.
+- Use one AuthD operator login; persist the responsible human separately from
+  background workload/service identities. The legacy Google upload login is a
+  migration input, not the target Workflow authentication contract.
 - Its enrollment worker calls APID directly. No clid executable or CLI parsing.
 - Keep capture available offline. Verified cloud jobs continue if the desktop closes.
+
+An authorized Start Processing command launches a configured job and exposes
+durable progress in the app. Operators do not provision a cluster, supply job
+YAML or log into the stitcher. Processing completion leads to review; it does
+not automatically approve or enroll labels.
 
 **"Desktop app" describes the operator experience, not where every computation must run.**
 If enrollment requests must originate on Windows, the alternative is in section 12.
@@ -106,7 +117,8 @@ WINDOWS STATION
 +---------------------------- EXISTING DUST SERVICES ------------------------------+
 |                                                                                 |
 | [E] AuthD                       [E] APID                                          |
-|     service-account key             Collections / Reels / Labels                  |
+|     human OAuth/PKCE + JWKS          Collections / Reels / Labels                  |
+|     service-account exchange        separate Workflow/APID token audiences       |
 |            |                        image extraction + enrollment APIs           |
 |            +--> short-lived JWT --> request auth + org/Team context               |
 |                                                   |                             |
@@ -519,6 +531,7 @@ Reel names are not unique. Persist returned UUIDs. Start the supervised pilot wi
        |
        +----< CAPTURE RUN
                    |
+                   +-- responsible human + initiating actor (issuer, subject)
                    +-- immutable raw inventory + capture-loss counters
                    |
                    +----< PROCESSING ATTEMPT
@@ -533,6 +546,7 @@ Reel names are not unique. Persist returned UUIDs. Start the supervised pilot wi
                                |
                                +----< ENROLLMENT PLAN
                                            |
+                                           +-- verified approver + enrollment requester
                                            +-- immutable approval digest
                                            +-- target Reel UUID + position map
                                            |
@@ -544,6 +558,13 @@ Reel names are not unique. Persist returned UUIDs. Start the supervised pilot wi
 ```
 
 For v1, one plan selects one processing attempt and one target Reel. Supporting rescanned segments later requires an explicit merge/position policy, not a changed interpretation of existing IDs.
+
+Ownership is derived from the verified human session at cloud registration;
+offline capture has no authenticated cloud owner until then. Persist initiator,
+reviewer, approver and enrollment requester as separate verified identity
+references. Worker attempts/receipts identify the executor separately. Never
+store user bearer/refresh tokens in these records or silently transfer ownership
+when another authorized person acts.
 
 ### State transitions
 
@@ -672,17 +693,17 @@ The exit-code issue was reproduced using an isolated stub: child exit 42 became 
                         OPERATOR IDENTITY
                               |
                               v
-                     Google browser + PKCE
+                     AuthD browser + PKCE
                               |
                   Tauri native token manager
                      (OS credential storage)
                               |
-                         Google ID token
+                  AuthD user JWT for Workflow
                               |
                               v
                        Workflow API
-                   validates audience/issuer
-                   maps user -> project rights
+                 validates signature/issuer/audience/time
+                 checks project + action + org/Team context
                               |
                +--------------+----------------------+
                |                                     |
@@ -698,7 +719,7 @@ The exit-code issue was reproduced using an isolated stub: child exit 42 became 
                                                      v
                                                    AuthD
                                                      |
-                                              short-lived APID JWT
+                                        AuthD service JWT for APID
                                                      |
                                                      v
                                                    APID
@@ -709,9 +730,37 @@ The exit-code issue was reproduced using an isolated stub: child exit 42 became 
        Desktop      -X-> no Kubernetes credentials / AWS master keys
 ```
 
-Google login and APID authentication are not interchangeable. Project authorization must constrain the backend's privileged actions; a request cannot choose an arbitrary Team, bucket, source URI or executable configuration.
+AuthD is the application identity provider for both humans and enrollment
+services. The native client obtains a Workflow-audience user token; the worker
+obtains a separate APID-audience service token. One login does not require one
+literal JWT for every service. Never forward the user's bearer token into jobs,
+S3, queues or APID, or relax Workflow audience validation for APID-only tokens.
 
-Record the approving operator separately from the executing service principal. Rust owns operator refresh credentials in Windows Credential Manager and validates the browser/PKCE callback; the renderer and Python helper do not receive tokens. Do not log keys, bearer tokens or signed URL query strings.
+Workflow derives identity from verified `(issuer, subject)` and authorizes each
+command before persisting intent. Project membership is sufficient only for the
+next read-only discovery increment. Qualify current org/Team/action permissions
+and server-owned destination mappings before enabling jobs or enrollment. Token
+org claims, readable Team lists and client context headers do not grant that
+authority. APID independently authorizes the service executor.
+
+Persist the responsible human, initiating/reviewing/approving actors and
+enrollment requester separately from the executing service principal. Ownership
+is accountability, not a permission bypass. Rust owns refresh credentials in
+Windows Credential Manager and validates browser state/PKCE/callbacks; the
+renderer and Python helper do not receive tokens. Do not log credentials or
+signed URL query strings. Define cancellation/revocation checks before unattended
+enrollment; UI closure or logout does not silently cancel approved cloud work.
+
+The scheduler uses configured workload permissions to launch/observe approved
+jobs. Stitcher IAM permits only approved S3 inputs/assets/outputs; it does not
+receive AuthD user tokens or APID secrets. Compute provisioning is platform setup,
+not an operator step. Native client/audience registration, issuer/key rotation,
+renewal and deployed permission boundaries remain qualification work.
+
+Workflow is the target upload-signing entry point under the same AuthD login.
+S18 must adapt or replace the legacy Google-only upload authorization and S19 must
+prove native transfer integration; an AuthD token cannot be sent unchanged to the
+old Google-only service. See the [identity decision](plans/authentication-boundaries.md).
 
 Tauri uses bundled local assets, CSP and explicit custom-command/window permissions; remote reports/pages cannot acquire native capabilities. Rust still validates paths, command state and allowlisted API/artifact origins. Capability configuration is not a sandbox around native Rust. No generic shell/spawn or unrestricted filesystem access is exposed to the web UI.
 
@@ -791,6 +840,13 @@ The HTTP fields, immutable approval, explicit positions and reconciliation rules
 
 ## 13. Implementation breakdown
 
+**Next local increment:** [S01a project listing](plans/S01a-authenticated-projects.md).
+Continue from the committed Go/pgx/sqlc/Goose foundation with AuthD JWT/JWKS
+verification, one membership-filtered project-list endpoint and one Go client
+method. Integration proof lives in `../label-enrollment-harness/`. Detail and
+readiness changes follow separately. This contributes to S05 without completing
+S00/S01/S05 parent gates; native login, pipeline mutations and UI remain later work.
+
 Delivery order for **each capability**, distinct from runtime data flow:
 
 ```text
@@ -850,4 +906,4 @@ The [implementation backlog](IMPLEMENTATION_SLICES.md) retains 25 parent IDs and
 6. Is enrollment verify-only or identifiable by default for this project?
 7. Are partial Reels allowed, or must every required label be resolved before approval?
 
-Selected desktop direction: Tauri + bundled web UI with a retained Python capture helper. Confirmed 2026-09-15: Go as the Workflow backend runtime. Proposed defaults still awaiting the relevant S00 approvals: React/TypeScript/Vite, cloud processing/enrollment, one qualified profile, explicit operator approval and no silent gaps. No clid dependency or local Windows stitcher is introduced.
+Selected desktop direction: Tauri + bundled web UI with a retained Python capture helper. Confirmed 2026-09-15: Go as the Workflow backend runtime, plus the AuthD single-login/accountable-human model recorded under S00 D10. Proposed defaults still awaiting the relevant S00 approvals: React/TypeScript/Vite, cloud processing/enrollment deployment, one qualified profile, explicit operator approval and no silent gaps. Identity integration/access and current org/Team permission lookup remain unqualified. No clid dependency or local Windows stitcher is introduced.

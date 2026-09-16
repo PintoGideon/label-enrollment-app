@@ -1,10 +1,12 @@
 # Labeltron desktop enrollment — recommended design and implementation plan
 
-**Status:** Tauri + web UI with a retained Python capture engine selected by the user; the remaining architecture is a proposal based on source-code review, not a production-validated design. See the [S00 decisions](plans/S00-pilot-scope.md).
+**Status:** Tauri + web UI with retained Python capture, Go orchestration and the single-AuthD-login/accountable-human model are selected. Remaining scope/deployment decisions and environment qualification are pending; this is not a production-validated design. See the [S00 decisions](plans/S00-pilot-scope.md).
 **Source baseline:** capture branches through September 2, 2026; stitcher and clid through September 14; APID through September 11. Exact commits and evidence: [SOURCES.md](SOURCES.md).
 
 **Architecture diagrams:** [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md).
 **Implementation slices and TODOs:** [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md).
+**Identity decision:** [AuthD and human ownership](plans/authentication-boundaries.md).
+**Next implementation increment:** [S01a project listing](plans/S01a-authenticated-projects.md).
 
 This plan replaces the earlier design; `PLAN.md` is retained only as historical context and the obsolete specification has been deleted. Earlier drafts used the wrong stitcher for this workflow and proposed shipping `clid`. **This design uses `dustid/labeltron-two-stitcher` and direct APID HTTP calls. No clid executable is required.**
 
@@ -182,13 +184,13 @@ This adds real scope: packaged helper/IPC, bounded preview, native lifecycle, we
 
 ## 4. Operator journey
 
-1. **Sign in / preflight.** Show camera, disk, cloud connectivity and destination-access status separately. Permit capture when cloud services are unavailable.
-2. **New run.** Choose project, label profile, printed reel number and, if known, expected count/range. Record station/operator and camera settings. Assign a UUID independent of the folder name.
+1. **Sign in / preflight.** Sign in once through AuthD using native browser/PKCE integration. Show camera, disk, cloud connectivity and destination-access status separately. Permit offline capture; cloud commands require an authorized session.
+2. **New run.** Choose project, label profile, printed reel number and, if known, expected count/range. Record station and camera settings. Assign a UUID independent of the folder name. Cloud registration derives the responsible human and initiator from verified issuer/subject; an offline run has no authenticated cloud owner until registration.
 3. **Capture.** Web controls invoke the retained Python engine through Tauri; preserve validated camera settings and acquisition semantics. Show received, saved, dropped and failed counts. Stop acquisition, flush writers, then explicitly seal the capture.
 4. **Upload.** Resume verified object transfers to S3. “Uploaded” means every sealed input is verified, not “folder exists.”
-5. **Process.** Select a versioned approved profile and start stitching; optional auto-start after verified upload. Show queue and per-phase progress.
+5. **Process.** Select a versioned approved profile and launch the configured cloud job with one authorized command. Show durable queue/per-phase progress and reattach after app restart. Optional auto-start after verified upload requires explicit product policy; processing never auto-approves or auto-enrolls results.
 6. **Review.** Display reconstructed labels, required crop slots, serial/QR, direction, source frames and warnings. Filter to exceptions; inspect first/last labels and samples across the reel.
-7. **Approve.** Freeze the chosen output revision, identities, positions, destination and indexing policy. Unresolved required labels block enrollment by default.
+7. **Approve.** Freeze the chosen output revision, identities, positions, destination and indexing policy, with the verified human approver. Unresolved required labels block enrollment by default. A later authorized reviewer/approver does not overwrite the original responsible owner.
 8. **Pilot enrollment.** Clearly labeled as a **real write**, enroll one approved label at its final position. Inspect returned members and perform a DUST verification check with the approved test procedure where available.
 9. **Enroll remainder.** Bounded concurrency, progress by verified Label outcomes, pause/resume and explicit conflicts.
 10. **Reconcile/report.** Compare every intended position/member against APID, then mark complete. Export a report and links to the cloud artifacts/APID Reel.
@@ -440,6 +442,12 @@ Dust-Ctx-Org-Id: <organization-uuid>
 Dust-Ctx-Team-Id: <team-uuid>
 ```
 
+For the target cloud worker, obtain an APID-audience service token from AuthD
+with the Team-scoped credential held server-side. This is separate from the
+human's Workflow-audience login token. Persist the verified human enrollment
+request and approved plan, then record the service principal on execution
+receipts. A context header selects org/Team; APID still checks actual authority.
+
 Keep a shared token manager that renews ahead of expiry and serializes renewal across worker concurrency. On 401, refresh once and retry/reconcile the same operation. Persistent 401 or a permission-denied 403 pauses the batch; it is not an unlimited-retry condition.
 
 Route metadata calls setup/enrollment `team-admin`. The current implementation also authorizes a **Service Account that is a member of the selected Team**; do not unnecessarily give a machine global/admin access. Validate deployed entitlement, membership and feature availability in phase 0. Vlink lookup has its own authorization requirements.
@@ -651,16 +659,21 @@ Avoid one mutable `labels.json` being edited simultaneously by the algorithm, UI
 
 ### 11.2 Minimal tables
 
-- `runs`: project, station, operator, storage locator, capture digest, capture mode/settings, loss counters, revision.
+- `runs`: project, station, responsible human and initiating actor as verified issuer/subject references, storage locator, capture digest, capture mode/settings, loss counters, revision.
 - `processing_attempts`: run/input revision, profile/assets/image digests, Job UID, phase, heartbeat, lease, output inventory, error.
 - `label_candidates`: attempt, candidate ID, scan index/anchor, identity/provenance, quality findings.
 - `artifacts`: owner context, key/version/hash/size/type, label candidate and crop slot.
-- `reviews`: candidate/revision, decision, reviewer, reason, timestamp.
-- `enrollment_plans`: approval digest, target environment/org/Team/Collection/Reel, position mapping, indexing, state.
-- `enrollment_rows`: frozen row digest/position, checkpointed extraction IDs, returned Label/identifier IDs, status, attempts, classified error.
+- `reviews`: candidate/revision, decision, verified reviewer identity, reason, timestamp.
+- `enrollment_plans`: verified approver and enrollment requester, approval digest, target environment/org/Team/Collection/Reel, position mapping, indexing, state.
+- `enrollment_rows`: frozen row digest/position, checkpointed extraction IDs, returned Label/identifier IDs, status, attempts/executing service identity, classified error.
 - `jobs/outbox/events`: durable commands, leases/fencing, observable state changes and audit trail.
 
 Use unique constraints for command IDs, `(plan_id, position)`, and active destination-Reel ownership. Enforce referential integrity and row-state transitions in transactions. Keep images out of the database.
+
+Ownership/action records never contain user access or refresh tokens. Derive
+actors server-side and preserve attribution across renewal, worker restart and
+actions by another authorized user. Ownership does not replace per-action
+authorization; audited ownership transfer is deferred.
 
 ### 11.3 State machines
 
@@ -720,7 +733,7 @@ apps/workflow/                   # Go Workflow module; S01a foundation exists (f
 packages/contracts/              # schemas + Go/TypeScript/Rust/Python golden fixtures
 ```
 
-Temporary setup/integration scripts and harnesses currently live in `../label-enrollment-app-tests/harness/`, separate from relocated reference sources under `../label-enrollment-app-tests/reference/`, not this repository or its pnpm workspace. Ordinary unit tests remain with source. Formal committed harnesses are deferred until requested; local proof does not imply shared CI acceptance. Production commands and CI must not depend on that folder.
+All setup/integration harnesses, fixture generators and reports belong in `../label-enrollment-harness/`, separate from reference sources under `../label-enrollment-app-tests/reference/`, outside this repository and its pnpm workspace. Focused unit/contract tests remain with source. Keep harness/planning work separate from feature PRs; production commands and CI must not depend on the harness. Local proof does not imply shared CI acceptance.
 
 Build the capture helper from a pinned, approved `labeltron-two` working branch/package, not by importing `reference/` at runtime or copying that tree into Git. Proposed upstream additions are `src/labeltron/headless/` for the protocol wrapper and `src/labeltron/capture/seal.py` for sealing. The dependency/distribution arrangement and upstream owner must be confirmed in S00. Reuse `BurstRunner`, `RunRequest`, capture events, `CameraSystem`/`CameraDevice`, `SimulatedCameraSystem`, runtime/preflight and settings/layout code. Keep the existing CLI/Qt app working as regression clients of the shared core.
 
@@ -773,13 +786,22 @@ See [SOURCES.md](SOURCES.md) for precise locations and the distinction between c
 
 ### Identity boundaries
 
-- **Operator:** retain the Google system-browser/PKCE flow for upload/workflow access, implemented in the native host rather than depending on the old Qt cloud panel. Validate callback state/nonce and approved redirect/origin, handle expiry/re-login, and validate tokens/project permissions server-side. An email/domain alone is not sufficient authorization to enroll into an arbitrary Team.
-- **Enrollment worker:** team-scoped APID Service Account; key in a cloud secret manager, short-lived APID token in worker memory. Audit both initiating operator and executing service principal.
+- **Operator:** one AuthD system-browser/PKCE login managed by native Rust. Validate callback state/PKCE and registered redirect, handle renewal/re-login, and obtain a token for the configured Workflow audience. Go verifies signature, issuer, audience and lifetime through bounded trusted JWKS retrieval. Identify the person by verified `(issuer, subject)`; email, submitted owner IDs and context headers are not authority.
+- **Workflow:** authorize project/object/action and current org/Team context before recording commands. Local membership serves the next read-only discovery increment; qualify the authoritative APID permission lookup and destination mapping before privileged commands. Persist the responsible human and each verified actor separately; no user tokens in job/approval/audit payloads.
+- **Enrollment worker:** Team-scoped service identity from the same AuthD; key in a cloud secret manager, APID-audience token in worker memory. Validate approved intent and cancellation/revocation policy; record the executor separately from human owner/requester/approver. APID independently checks service authority.
+- **Scheduler:** workload credentials limited to launching/observing approved job templates in configured compute. Operators need no Kubernetes login or arbitrary job-spec controls.
 - **S3/stitcher:** workload IAM role with read access to approved inputs/assets and write access to that job's output scope. No APID enrollment secret in the algorithm container.
 - **Desktop:** no cloud master keys. Rust owns operator tokens and Windows Credential Manager access; do not put bearer/refresh tokens in JavaScript storage or pass them to the capture helper. Desktop OAuth client secrets cannot be treated as confidential application secrets.
 - **Webview/native boundary:** bundle UI assets for offline use, enforce CSP and explicit command capabilities for the trusted window, and deny remote content native access. Do not render diagnostic HTML in a privileged webview. Native handlers must enforce paths, command state and allowlisted API/S3 destinations themselves; CSP/capabilities are not a substitute for validation.
 
-Google upload login and APID identity are separate trust domains; do not forward a Google ID token to APID and expect it to work. A later AuthD operator login can unify the desktop experience only after upload/workflow audience and token-exchange policy are explicitly designed.
+The [AuthD decision](plans/authentication-boundaries.md) supersedes the earlier
+Google-first proposal. Workflow user and APID service tokens have separate
+audiences; a single login does not imply a shared/multi-audience JWT. S18 must
+adapt or replace the legacy Google-only upload authorization with the Workflow
+signing boundary, and S19 proves the native integration. Native client/audience
+registration, renewal, current permission lookup and deployed workload isolation
+are still qualification tasks. Closing the UI or signing out does not silently
+cancel approved cloud work, and JWT revocation is not claimed to be immediate.
 
 ### Storage and data safety
 
@@ -815,7 +837,7 @@ Do not build cloud and local algorithm execution simultaneously for v1. Define t
 
 ## 16. Delivery milestones and acceptance criteria
 
-The actionable backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md): 25 parent slices with separate backend/API/client/script and UI child gates. These milestones describe outcomes, not permission to build UI before its underlying capability is script-proven. Only the limited S01a Go/pnpm HTTP foundation has started; no milestone or full parent gate has passed.
+The actionable backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md): 25 parent slices with separate backend/API/client/script and UI child gates. These milestones describe outcomes, not permission to build UI before its underlying capability is script-proven. The S01a Go/pnpm/PostgreSQL foundation is committed and locally proven; authenticated project discovery is the next increment. No milestone or full parent gate has passed.
 
 ```text
 Repeat for one small capability:
@@ -912,12 +934,19 @@ Algorithm correctness acceptance should be based on verified label↔QR↔DUST c
 6. Are required-label gaps allowed? Recommended v1: no silent skipping; whole-plan approval waits for resolution.
 7. Verify-only or identifiable enrollment? Make the project policy explicit; do not inherit APID's default by accident.
 8. Required workload: runs/day, labels/run, raw size, station bandwidth, simultaneous stations and acceptable turnaround?
-9. Can enrollment run under an audited Team-scoped worker Service Account, or must the individual operator's APID identity perform writes?
+9. Qualify the selected AuthD/human-accountability model: native client/Workflow audience registration, current org/Team action permissions, APID service-token renewal and upload-auth transition. Confirm cloud versus Windows enrollment placement under D01c separately from human ownership.
 10. Production retention, code-signing ownership, supported Windows versions and recovery/support responsibilities?
 
 ### First code slice and early proofs
 
-The user's build kickoff started the bounded [S01a](plans/S01a-backend-foundation.md) Go/pnpm HTTP foundation while pilot prerequisites remain pending. Its probe smoke test is not the authenticated project/database acceptance gate.
+The user's build kickoff started the bounded [S01a foundation](plans/S01a-backend-foundation.md)
+while pilot prerequisites remain pending. Go/pgx/sqlc/Goose persistence is committed
+as `23df567` with local proof. **Implement [S01a project listing](plans/S01a-authenticated-projects.md)
+next:** AuthD verification -> one project-list route -> one Go client method ->
+proof in `../label-enrollment-harness/`. Project detail and readiness changes are
+separate follow-ups. This local continuation requires
+no live credentials, screens or pipeline mutations and does not complete the
+remaining S00/S01/S05 gates.
 
 After S00 acceptance, start **S01: executable contracts, canonical identities/digests and headless test-harness conventions**. Then prioritize **S05: backend service + authorized project API + nonvisual client + scripted proof**. S02 engine hardening and S17a headless helper can proceed independently.
 

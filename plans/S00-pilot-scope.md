@@ -1,6 +1,6 @@
 # S00 — Pilot scope and access decisions
 
-**Status:** Tauri/web UI with retained Python capture, backend-first/script-before-UI delivery, Go orchestration and pnpm workspace tooling confirmed; S00 completion remains blocked on the other decisions and access below.
+**Status:** Tauri/web UI with retained Python capture, backend-first/script-before-UI delivery, Go orchestration, pnpm workspace tooling and the single-AuthD-login/human-ownership model confirmed; S00 completion remains blocked on the other decisions and access below.
 **Branch:** `slice/s00-pilot-scope`
 **Backlog:** [S00 in IMPLEMENTATION_SLICES.md](../IMPLEMENTATION_SLICES.md#s00---lock-the-pilot-scope-and-unblock-access)
 
@@ -20,7 +20,7 @@ full S01/S05 acceptance still requires the unresolved S00 prerequisites.
 
 ## Required decisions
 
-**D01a, D08, D09 and the D02 runtime language are confirmed; all other entries remain pending**, not defaults that an implementation may silently accept.
+**D01a, D08, D09, D10's identity/ownership model and the D02 runtime language are confirmed; other decisions and environment qualification remain pending**, not defaults that an implementation may silently accept.
 For each decision, record the selected value, approving owner, date, and evidence
 or a link to the decision. Keep credentials and private fixture contents out of Git.
 
@@ -37,6 +37,7 @@ or a link to the decision. Keep credentials and private fixture contents out of 
 | D07 | Station, packaging, capacity, and retention | Confirm Windows/camera/driver targets, WebView2 online/offline provisioning and patch ownership, Python-helper/Vimba distribution permissions, real-hardware checks, workload/throughput, and raw/result/checkpoint/approval/receipt retention. | Pending |
 | D08 | Delivery order per capability | Backend -> API -> nonvisual frontend/client integration -> scripted proof -> UI. Backend/API tests start immediately; scripts exercise the same production client/API or helper core before screens. Backend gates do not depend on UI completion. | Confirmed by user, 2026-09-15 EDT, in this planning conversation |
 | D09 | Workspace package manager/task entry point | pnpm workspace for `apps/*` and future `packages/*`. The Go service has a task-only `package.json`; dependencies remain Go modules. No TypeScript backend, frontend framework or extra task runner is implied. | Confirmed by user, 2026-09-15 EDT: “Can we move towards pnpm workspace??” |
+| D10 | Application identity and accountable ownership | One AuthD browser/PKCE login; Workflow-audience user tokens; verified human `(issuer, subject)` owns the workflow. The target background executor uses a separate APID-audience AuthD service token and is audited separately. No user token in job/audit payloads. Record issuer/client/audience and permission/upload-transition owners; runtime qualification belongs to S05/S10a/S13/S18/S19. | Identity/ownership model confirmed in the [authentication decision](authentication-boundaries.md); environment/setup decisions pending. Does not settle D01c/D02 or make later runtime integration a prerequisite of S00. |
 
 ## Confirmed decision log
 
@@ -44,7 +45,7 @@ or a link to the decision. Keep credentials and private fixture contents out of 
 
 Updated design consequences: native Rust owns helper supervision, operator credentials, cloud HTTP and the SQLite transfer journal; Python owns capture/sealing. IPC and helper packaging are new work, not already delivered by `labeltron-cli`. The old `PLAN.md` remains superseded; its clid/local-stitcher architecture is not restored.
 
-**2026-09-15 EDT — user:** requested backend -> API -> frontend -> test via scripting -> UI. D08 records this per-feature delivery order; frontend before UI means nonvisual client/state integration. It supersedes starting S10a with a Tauri shell. The actual Workflow backend, API/state store and acceptance scripts still do not exist; existing APID/stitcher source is not readiness evidence for them.
+**2026-09-15 EDT — user:** requested backend -> API -> frontend -> test via scripting -> UI. D08 records this per-feature delivery order; frontend before UI means nonvisual client/state integration. It supersedes starting S10a with a Tauri shell. At that decision point the new backend was unimplemented. The later S01a checkpoint added the Go/PostgreSQL foundation; authenticated domain APIs and their acceptance proof remain pending.
 
 **2026-09-15 EDT — user:** “Yes we are going to do go.” This confirms **Go** as the Workflow backend language/runtime, after review found the S01a foundation already implemented in Go while the specs still said TypeScript. It confirms only the D02 runtime language: the Workflow repository home, compute platform, owners and every other pending decision stay open. The foundation lives in `apps/workflow/` on `slice/s01a-backend-foundation`; that working location does not settle the repository-home question.
 
@@ -52,7 +53,14 @@ Updated design consequences: the backend is one Go module whose API, scheduler, 
 
 **2026-09-15 EDT — user:** requested a pnpm workspace (D09). Root commands now delegate to the Go toolchain; pnpm does not compile Go or replace `go.mod`. The installed pnpm 11.20.0 is pinned without a global upgrade. Frontend framework approval, native/Rust client gates and the remaining pilot decisions are unchanged.
 
-**2026-09-15 EDT — development policy:** the user requested that temporary test/setup harnesses stay in a separate, uncommitted folder and that existing script/harness clutter be cleaned up. S01a now keeps these under `../label-enrollment-app-tests/harness/`, separate from the relocated `reference/` sibling. Ordinary Go unit tests stay with source; project builds and CI do not depend on local-only files. Formal project harnesses are deferred until requested. This placement policy does not complete any pending pilot/access gate or change D08's backend-before-UI testing order.
+**2026-09-15 EDT — development policy:** the user requested that temporary test/setup harnesses stay in a separate, uncommitted folder and that existing script/harness clutter be cleaned up. S01a now keeps these under `../label-enrollment-harness/`, separate from the relocated `reference/` sibling. Ordinary Go unit tests stay with source; project builds and CI do not depend on local-only files. Formal project harnesses are deferred until requested. This placement policy does not complete any pending pilot/access gate or change D08's backend-before-UI testing order.
+
+**2026-09-15 EDT — plan reconciliation:** the user requested that the plans reflect
+the latest design. D10 records the previously confirmed AuthD/human-ownership
+decision and supersedes Google-first target authentication. The next local
+implementation increment is [S01a project listing](S01a-authenticated-projects.md),
+after committed foundation `23df567`. This documentation update adds no runtime
+acceptance and does not resolve the remaining pilot/deployment decisions.
 
 ## Current proposed pilot boundaries
 
@@ -70,6 +78,8 @@ These summarize the design for review; unresolved required decisions above remai
 - [x] D01a: Tauri/web UI with retained Python capture helper selected by the user; implementation unstarted.
 - [x] D08: backend/API/nonvisual-client/script/UI delivery order selected; no implementation or test success implied.
 - [x] D09: pnpm workspace selected; Go remains the orchestration language.
+- [x] D10 (identity/ownership model): one AuthD login and accountable human owner; service execution recorded separately.
+- [ ] D10 (setup decisions): record issuer/client/audience registration and owners for permission lookup/upload transition. Runtime qualification is tracked in S05/S10a/S13/S18/S19, not required to finish this decision sheet.
 - [ ] D01b: frontend framework/tooling confirmed.
 - [ ] D01c: cloud versus Windows-origin enrollment decision approved.
 - [x] D02 (runtime language): Go selected by the user for the Workflow backend; no implementation completeness implied.
@@ -92,7 +102,10 @@ branch is merged.
 - Preserve the source-review limits in [SOURCES.md](../SOURCES.md). Mocked fixtures
   do not establish scientific correctness or live-service compatibility.
 - Keep reference checkouts, private raw/reference data, and credentials out of commits.
+- Continue the bounded local [S01a project-list increment](S01a-authenticated-projects.md)
+  using isolated signed-token fixtures and owned PostgreSQL; live access is not
+  needed for that proof. Its completion is not full S01/S05 acceptance.
 - After all S00 acceptance conditions pass, create a separate S01 contracts/test-harness branch.
   Live extraction/enrollment remains a later, explicitly authorized opt-in activity.
 
-**Acceptance record:** D01a, D08, D09 and the D02 runtime language (Go) confirmed; all remaining required decisions/access pending. S01a has Go/pnpm startup, PostgreSQL project/membership migrations and local real-database evidence, not a completed Workflow domain API or project/PostgreSQL acceptance gate. No Tauri/native build, helper protocol or live S3/APID/compute/hardware check has been completed.
+**Acceptance record:** D01a, D08, D09, D10's identity/ownership model and the D02 runtime language (Go) confirmed; remaining required decisions/access and identity integration are pending. S01a has Go/pnpm startup, PostgreSQL project/membership migrations and local real-database evidence, not a completed authenticated project API. No Tauri/native build, helper protocol or live S3/APID/compute/hardware check has been completed.

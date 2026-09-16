@@ -3,7 +3,8 @@
 **Branch:** `slice/s01a-backend-foundation` (based on the S00 planning branch)
 **Status:** Go/pnpm service, pgx pool, Goose SQL migrations and sqlc-generated
 readiness queries implemented and locally proven. Signed
-authentication/project APIs are next. No full parent or pilot gate is complete;
+authentication/project APIs are next in the [bounded continuation ticket](S01a-authenticated-projects.md).
+Foundation committed as `23df567`. No full parent or pilot gate is complete;
 human review is pending.
 
 ## Scope and authorization
@@ -36,9 +37,9 @@ outside both application and harness modules. Only Git move metadata was repaire
 
 ## Current harness-placement policy
 
-The user requested temporary setup tests in a separate, uncommitted folder and
-cleanup of the project. Drivers/tests live under the sibling
-`../label-enrollment-app-tests/harness/`, which has its own local-only Go module. It builds
+The user requested all harnesses in `../label-enrollment-harness/`. Existing
+drivers remain at `../label-enrollment-app-tests/harness/`; relocation is outside
+the project-list slice and has not occurred. Their local-only Go module builds
 and launches the actual application and consumes public Go API/client packages,
 without copying the backend or bypassing its `internal/` boundary.
 
@@ -47,8 +48,8 @@ preserved under `../label-enrollment-app-tests/_archive/`. Project `scripts/`, `
 `internal/smoke`, `pnpm smoke` and `pnpm fmt:check` are gone. Ordinary Go unit tests,
 standard pnpm/Go commands and build/unit-test CI remain. No production module,
 pnpm command or CI step depends on the sibling folder. Future temporary database,
-auth and integration harnesses go there; formal committed harnesses are deferred
-until requested. Local results are not automatically shared CI/release acceptance.
+auth and integration harnesses all go there. Focused unit/contract tests remain
+with application code; local results are not automatically shared CI/release acceptance.
 
 ## Reuse and boundaries
 
@@ -59,7 +60,7 @@ until requested. Local results are not automatically shared CI/release acceptanc
   transaction per file under a PostgreSQL session advisory lock. Typed queries
   come from sqlc v1.31.1, invoked as `go -C tools tool sqlc <command> -f ../sqlc.yaml`
   from `apps/workflow/`, so tooling never enters the service dependency graph.
-- Future token verification must check issuer, audience, signature and lifetime;
+- Future AuthD token verification must check configured issuer, Workflow audience, signature and lifetime;
   authorization uses issuer + subject membership, not email or client Team headers.
 - Future isolated auth fixtures use local signing keys with actual cryptographic
   verification, never a bypass accepted by normal production configuration.
@@ -68,6 +69,12 @@ until requested. Local results are not automatically shared CI/release acceptanc
 - The external local probe smoke test is only a foundation checkpoint, not full
   acceptance. `/readyz` deliberately returns 503 and project routes 404.
 - The Go client does not pass S10a's future native/web frontend-client gate.
+
+The [authentication decision](authentication-boundaries.md) governs identity and
+ownership. The next S01a increment is read-only project discovery, with its own
+scope, API and proof criteria; preserve this file as foundation evidence and the
+tracker for outstanding migration/CI follow-ups. Human ownership/action audit
+schema belongs to S06/S11/S12/S13, not the read-only increment.
 
 ## Implemented increment — PostgreSQL persistence (local proof, review pending)
 
@@ -90,7 +97,7 @@ until requested. Local results are not automatically shared CI/release acceptanc
 
 Reference checkouts have moved to `../label-enrollment-app-tests/reference/`;
 only Git worktree pointers were repaired, with all checkout HEADs preserved.
-The local Go test module is now under `../label-enrollment-app-tests/harness/`
+The existing local Go test module is under `../label-enrollment-app-tests/harness/`
 so normal Go discovery cannot traverse reference sources or protected manifests.
 The app still has no dependency on either external folder.
 
@@ -149,6 +156,10 @@ Not part of this ticket. Passing headless proof is a prerequisite, not UI or
 production-readiness acceptance.
 
 ## Evidence — 2026-09-15 EDT
+
+Historical commands below retain their original paths. A future relocation to
+`../label-enrollment-harness/` requires `-repo ../label-enrollment-app`;
+no relocation or rerun of this historical acceptance record has occurred.
 
 Passed locally on macOS arm64, Go 1.27.1, Node 24.14.0 and pnpm 11.20.0:
 
