@@ -16,7 +16,7 @@ type DatabaseChecker interface {
 	Check(context.Context) api.DatabaseStatus
 }
 
-func NewHandler(database DatabaseChecker) http.Handler {
+func NewHandler(database DatabaseChecker, verifier TokenVerifier, projects ProjectLister) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, api.ProbeResponse{Status: api.StatusOK, Service: api.ServiceName})
@@ -31,14 +31,15 @@ func NewHandler(database DatabaseChecker) http.Handler {
 				status = api.DatabaseUnavailable
 			}
 		}
-		// Database readiness does not make an unimplemented authorized API ready.
+		// Listing alone does not complete the deferred project-API readiness gate.
 		writeJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{
 			Error: api.ErrorDetail{
-				Code: api.CodeNotReady, Message: "Authenticated project API is not implemented yet.",
+				Code: api.CodeNotReady, Message: "Authenticated project API readiness is not implemented yet.",
 			},
 			Checks: &api.ReadinessChecks{Database: status, ProjectAPI: api.ProjectAPINotImplemented},
 		})
 	})
+	mux.HandleFunc("GET /pipeline/v1/projects", listProjects(verifier, projects))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -53,9 +54,9 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func NewServer(database DatabaseChecker) *http.Server {
+func NewServer(database DatabaseChecker, verifier TokenVerifier, projects ProjectLister) *http.Server {
 	return &http.Server{
-		Handler:           NewHandler(database),
+		Handler:           NewHandler(database, verifier, projects),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -66,8 +67,8 @@ func NewServer(database DatabaseChecker) *http.Server {
 
 // Serve owns listener after invocation. Cancellation drains requests for up to
 // five seconds, then closes remaining connections rather than orphaning a server.
-func Serve(ctx context.Context, listener net.Listener, database DatabaseChecker) error {
-	server := NewServer(database)
+func Serve(ctx context.Context, listener net.Listener, database DatabaseChecker, verifier TokenVerifier, projects ProjectLister) error {
+	server := NewServer(database, verifier, projects)
 	finished := make(chan error, 1)
 	go func() { finished <- server.Serve(listener) }()
 

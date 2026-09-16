@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/PintoGideon/label-enrollment-app/apps/workflow/internal/auth"
 	"github.com/PintoGideon/label-enrollment-app/apps/workflow/internal/config"
 	"github.com/PintoGideon/label-enrollment-app/apps/workflow/internal/database"
 	"github.com/PintoGideon/label-enrollment-app/apps/workflow/internal/httpapi"
@@ -52,13 +53,19 @@ func run(args []string, getenv func(string) string, logger *slog.Logger) int {
 		logger.Info("Workflow migrations complete", "applied", applied)
 		return 0
 	}
+	verifier, err := auth.New(cfg.Auth)
+	if err != nil {
+		logger.Error("could not initialize Workflow authentication", "error", err.Error())
+		return 1
+	}
+	defer verifier.Close()
 	listener, err := net.Listen("tcp", cfg.Address)
 	if err != nil {
 		logger.Error("could not open workflow listener")
 		return 1
 	}
 	logger.Info("workflow foundation listening", "address", listener.Addr().String(), "ready", false)
-	if err := httpapi.Serve(ctx, listener, store); err != nil {
+	if err := httpapi.Serve(ctx, listener, store, verifier, store); err != nil {
 		logger.Error("workflow server stopped unexpectedly")
 		return 1
 	}

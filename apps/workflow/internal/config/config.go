@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Address     string
 	DatabaseURL string `json:"-"`
+	Auth        Auth
 }
 
 // Load deliberately permits only literal loopback addresses for this local-only
@@ -30,5 +31,12 @@ func Load(getenv func(string) string) (Config, error) {
 	if err := ValidateDatabaseURL(databaseURL); err != nil {
 		return Config{}, err
 	}
-	return Config{Address: net.JoinHostPort(host, strconv.Itoa(number)), DatabaseURL: databaseURL}, nil
+	auth := Auth{
+		Issuer: getenv("WORKFLOW_AUTH_ISSUER"), Audience: getenv("WORKFLOW_AUTH_AUDIENCE"),
+		JWKSURL: getenv("WORKFLOW_AUTH_JWKS_URL"), CABundle: getenv("WORKFLOW_AUTH_CA_BUNDLE"),
+	}
+	if err := auth.Validate(); err != nil {
+		return Config{}, err
+	}
+	return Config{Address: net.JoinHostPort(host, strconv.Itoa(number)), DatabaseURL: databaseURL, Auth: auth}, nil
 }

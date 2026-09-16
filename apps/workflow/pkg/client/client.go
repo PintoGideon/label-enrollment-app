@@ -1,5 +1,5 @@
-// Package client provides a nonvisual Workflow HTTP client. This first checkpoint
-// implements probes only; authenticated project methods are still pending.
+// Package client provides a bounded nonvisual Workflow HTTP client. Credentials
+// for project discovery are supplied per call and are never persisted.
 package client
 
 import (
@@ -75,41 +75,55 @@ func (c *Client) Readiness(ctx context.Context) (api.ProbeResponse, error) {
 
 func (c *Client) probe(ctx context.Context, path, expectedStatus string) (api.ProbeResponse, error) {
 	var result api.ProbeResponse
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	body, mediaType, status, err := c.get(ctx, path, "", maxResponseBytes)
 	if err != nil {
-		return result, errors.New("could not construct workflow request")
+		return result, err
 	}
-	request.Header.Set("Accept", "application/json")
-	response, err := c.http.Do(request)
-	if err != nil {
-		if ctx.Err() != nil {
-			return result, ctx.Err()
-		}
-		return result, errors.New("workflow request failed")
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
-	if err != nil || len(body) > maxResponseBytes {
-		return result, errors.New("workflow response unreadable or exceeds size limit")
-	}
-	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if response.StatusCode != http.StatusOK {
+	if status != http.StatusOK {
 		code := "HTTP_ERROR"
 		var problem api.ErrorResponse
 		var checks *api.ReadinessChecks
-		if mediaType == "application/json" && decodeJSON(body, &problem) == nil && problem.Error.Code == api.CodeNotReady && response.StatusCode == http.StatusServiceUnavailable {
+		if mediaType == "application/json" && decodeJSON(body, &problem) == nil && problem.Error.Code == api.CodeNotReady && status == http.StatusServiceUnavailable {
 			if problem.Checks != nil && !problem.Checks.Valid() {
 				return result, errors.New("workflow readiness checks do not match the contract")
 			}
 			code = api.CodeNotReady
 			checks = problem.Checks
 		}
-		return result, &APIError{StatusCode: response.StatusCode, Code: code, Checks: checks}
+		return result, &APIError{StatusCode: status, Code: code, Checks: checks}
 	}
 	if mediaType != "application/json" || decodeJSON(body, &result) != nil || result.Status != expectedStatus || result.Service != api.ServiceName {
 		return api.ProbeResponse{}, errors.New("workflow response does not match the probe contract")
 	}
 	return result, nil
+}
+
+func (c *Client) get(ctx context.Context, path, token string, maxBytes int) ([]byte, string, int, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, "", 0, errors.New("could not construct workflow request")
+	}
+	request.Header.Set("Accept", "application/json")
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := c.http.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, "", 0, ctx.Err()
+		}
+		return nil, "", 0, errors.New("workflow request failed")
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, int64(maxBytes)+1))
+	if ctx.Err() != nil {
+		return nil, "", 0, ctx.Err()
+	}
+	if err != nil || len(body) > maxBytes {
+		return nil, "", 0, errors.New("workflow response unreadable or exceeds size limit")
+	}
+	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	return body, mediaType, response.StatusCode, nil
 }
 
 func decodeJSON(body []byte, target any) error {

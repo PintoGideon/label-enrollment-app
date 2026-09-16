@@ -22,7 +22,7 @@ func TestDatabaseChecksDoNotGrantProjectAPIReadiness(t *testing.T) {
 					t.Error("dependency check lacks deadline")
 				}
 				return state
-			}))
+			}), nil, nil)
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 			var result api.ErrorResponse

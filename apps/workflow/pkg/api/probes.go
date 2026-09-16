@@ -1,5 +1,4 @@
 // Package api defines the JSON contracts shared by the Workflow service and client.
-// The authenticated project contracts will be introduced later in S01a.
 package api
 
 const (

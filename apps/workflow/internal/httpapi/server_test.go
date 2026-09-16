@@ -13,7 +13,7 @@ import (
 )
 
 func TestProbeContracts(t *testing.T) {
-	handler := NewHandler(nil)
+	handler := NewHandler(nil, nil, nil)
 	for _, path := range []string{"/healthz", "/readyz"} {
 		t.Run(path, func(t *testing.T) {
 			response := httptest.NewRecorder()
@@ -42,7 +42,7 @@ func TestProbeContracts(t *testing.T) {
 	}
 }
 
-func TestNoMutationRoutesOrFakeProjectAPI(t *testing.T) {
+func TestFoundationRouteBoundaries(t *testing.T) {
 	for _, tc := range []struct {
 		method string
 		path   string
@@ -50,10 +50,10 @@ func TestNoMutationRoutesOrFakeProjectAPI(t *testing.T) {
 	}{
 		{http.MethodPost, "/healthz", http.StatusMethodNotAllowed},
 		{http.MethodPost, "/readyz", http.StatusMethodNotAllowed},
-		{http.MethodGet, "/pipeline/v1/projects", http.StatusNotFound},
+		{http.MethodGet, "/pipeline/v1/projects", http.StatusUnauthorized},
 	} {
 		response := httptest.NewRecorder()
-		NewHandler(nil).ServeHTTP(response, httptest.NewRequest(tc.method, tc.path, nil))
+		NewHandler(nil, nil, nil).ServeHTTP(response, httptest.NewRequest(tc.method, tc.path, nil))
 		if response.Code != tc.status {
 			t.Fatalf("%s %s: status %d, want %d", tc.method, tc.path, response.Code, tc.status)
 		}
@@ -61,7 +61,7 @@ func TestNoMutationRoutesOrFakeProjectAPI(t *testing.T) {
 }
 
 func TestServerHasResourceBounds(t *testing.T) {
-	server := NewServer(nil)
+	server := NewServer(nil, nil, nil)
 	if server.ReadHeaderTimeout <= 0 || server.ReadTimeout <= 0 || server.WriteTimeout <= 0 || server.IdleTimeout <= 0 || server.MaxHeaderBytes <= 0 {
 		t.Fatal("missing HTTP resource bounds")
 	}
@@ -75,7 +75,7 @@ func TestCanceledServerClosesListener(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, listener, nil) }()
+	go func() { done <- Serve(ctx, listener, nil, nil, nil) }()
 	cancel()
 	select {
 	case err := <-done:
