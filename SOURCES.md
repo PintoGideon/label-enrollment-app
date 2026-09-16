@@ -4,6 +4,14 @@ Companion to [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md), the current proposal, a
 
 ## 1. Repositories and pinned revisions
 
+**Reference location:** on 2026-09-15, at the user's request, the entire reference
+folder was atomically moved to `../label-enrollment-app-tests/reference/`.
+Throughout this document, `reference/<checkout>` is shorthand relative to that
+external container, not a path inside the application repository. All 12 checkout
+HEADs and worktree top-level paths were verified using Git metadata only; linked
+worktree pointers were repaired. No source or protected manifest was inspected or
+edited during relocation. The harness Go module is a separate `harness/` sibling.
+
 The requested capture/cloud-sync URLs are two branches of the same repository. The existing capture clone was fetched, the Windows branch was added as a detached worktree, and the new stitcher repository was cloned. Existing clid/APID clones were fetched and their current main revisions opened in separate worktrees to verify direct HTTP contracts without disturbing the older checkouts.
 
 | Repository / branch | Full reviewed commit | Local path | Role |
@@ -21,7 +29,7 @@ All source references below refer to these commits. Feature branches and deploye
 
 The earlier `reference/clid` (`bdf80af`), `reference/apid` (`afb4c6e`), `reference/labeltron` (`f86ea2c`), `reference/labs-toolkit` (`8b91599`), `reference/labs-toolkit--apid-sdk-py` (`9050ff1`) and `reference/redirect-service` (`10bd97b`) checkouts were not removed or rewritten. The old Python stitcher and older SDK/spec assumptions are not the basis for this plan.
 
-`reference/` is excluded by the existing `.gitignore`. No implementation changes, commits, pushes or deployments were made to the reference repositories.
+References are now outside this repository; its old `reference/` ignore rule remains as a safeguard. No implementation changes, commits, pushes or deployments were made to the reference repositories. Relocation changed only paths and necessary Git worktree metadata.
 
 ## 2. Capture and cloud-sync evidence
 
@@ -189,7 +197,7 @@ Those are explicit phase-0/pilot tasks, not implied successes. Architecture deta
 
 ## 6. Tauri decision and integration references
 
-On 2026-09-15 EDT the user selected **Tauri + bundled web UI with the Python capture engine retained as a local helper**; see [S00](plans/S00-pilot-scope.md). This is a product decision, not a finding that the reviewed capture repository already contains a Tauri application. React/TypeScript/Vite remains a proposed frontend choice. The historical `PLAN.md` is still superseded: selecting Tauri does not reinstate its local Python stitcher or clid sidecars.
+On 2026-09-15 EDT the user selected **Tauri + bundled web UI with the Python capture engine retained as a local helper**; see [S00](plans/S00-pilot-scope.md). This is a product decision, not a finding that the reviewed capture repository already contains a Tauri application. React/TypeScript/Vite remains a proposed frontend choice. The Workflow backend runtime is Go, confirmed by the user on 2026-09-15 EDT and recorded under S00 D02. The historical `PLAN.md` is still superseded: selecting Tauri does not reinstate its local Python stitcher or clid sidecars.
 
 The additional headless reuse findings above were checked against the same pinned capture source. No reference files were changed or added to this repository, and protected `manifests/` was not inspected.
 
@@ -205,4 +213,31 @@ No Tauri scaffold/build, Windows helper bundle, IPC smoke test, WebView2 verific
 
 On 2026-09-15 EDT the user requested backend -> API -> frontend integration -> scripted proof -> UI per capability. [D08](plans/S00-pilot-scope.md) records this and the backlog now separates nonvisual client/script gates from screens. It supersedes the earlier shell-first sequence.
 
-The tracked files in this repository are still Markdown planning documents and `.gitignore`: no Workflow service, `/pipeline/v1` implementation, migration/test harness, new helper protocol or UI exists here. APID/AuthD and stitcher/capture source review establishes reusable interfaces, not deployed readiness or completion of the new backend. No new backend acceptance script has been run; document/link/dependency checks must not be reported as runtime tests.
+On `main`, the tracked files are still Markdown planning documents and `.gitignore`. The `slice/s01a-backend-foundation` branch adds a Go Workflow module under `apps/workflow/` with liveness and fail-closed readiness probes, a probe-only client and unit tests; its smoke driver has been moved outside the repository to a local-only sibling folder; PostgreSQL pooling/migrations/readiness are now implemented, but `/pipeline/v1` routes, authentication, new helper protocol and UI remain pending. APID/AuthD and stitcher/capture source review establishes reusable interfaces, not deployed readiness or completion of the new backend. No new backend acceptance script has been run; the S01a smoke driver is a foundation check, not the S05 acceptance script. Document/link/dependency checks must not be reported as runtime tests.
+
+### Go/pnpm foundation checkpoint
+
+The user selected Go orchestration and pnpm workspace tooling on 2026-09-15 EDT.
+S01a contains a Go HTTP service/client, pgx v5.11.0 PostgreSQL pool, Goose v3.28.0
+embedded SQL migrations and sqlc v1.31.1 generated queries, plus pnpm task wrappers.
+The user explicitly selected this SQL-first stack to replace the custom runner.
+Goose uses per-file transactions and does not store migration checksums; the
+former checksum-based prototype evidence is historical, not a current guarantee.
+There are no JavaScript backend dependencies. `pnpm check` and `pnpm build`
+passed locally; detailed commands and limitations are in the
+[S01a evidence](plans/S01a-backend-foundation.md). After the user's cleanup request,
+`pnpm check` now runs sqlc's generated-code diff check plus Go vet/unit tests;
+smoke/custom formatting scripts and the redundant Makefile remain outside the
+project. Temporary testing lives in
+`../label-enrollment-app-tests/harness/`, outside Git/workspace membership and
+separate from `reference/`. Drivers build/start the real executable and use its
+public Go client, with no copied backend or reverse production dependency. The
+persistence proof uses an owned temporary PostgreSQL 15.19 cluster to verify
+Goose per-file transaction rollback, concurrent/repeated migration, generated
+read-only readiness queries, retired-ledger rejection, version/column mismatch
+denial, constraints, service/database restart and sanitized logs. No existing database
+or live application service was used. Overall readiness still fails closed for
+the pending authenticated project API. This is local evidence, not full S01/S05
+or shared CI acceptance.
+GitHub build/unit-test CI is configured but not yet executed/validated. No UI, live enrollment,
+reference-source modification or scientific qualification is implied.

@@ -1,6 +1,6 @@
 # Labeltron Enrollment - Implementation Slices and TODOs
 
-**Status: proposed backlog. No implementation has started.** Only explicitly confirmed S00 decisions may be checked; implementation tasks remain open. Repository-review findings are inputs, not evidence that a code slice is finished.
+**Status: parent backlog proposed; S01a local groundwork is in progress.** A Go/pnpm service with PostgreSQL pooling/migrations/readiness exists; its temporary smoke harness is in a separate local-only sibling folder, not the project. No parent acceptance gate is complete. Only evidenced child work and explicitly confirmed decisions may be checked. Repository-review findings are not implementation evidence.
 
 Architecture: [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md).
 Detailed design: [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md).
@@ -17,6 +17,18 @@ This document is the execution-order and TODO reference. The other documents exp
 5. Keep slices independently reviewable and production enrollment disabled until explicit release/field gates pass. Existing APID/stitcher code is not proof that the new Workflow backend is implemented.
 
 A slice should normally fit in a few focused engineering days and one or a few small PRs. If refinement reveals more than about three days of implementation, split it into child tickets before coding. Native builds, infrastructure access and scientific qualification are uncertain; these are sizing guidelines, not delivery promises.
+
+### Current local test-tooling policy
+
+Per the user's cleanup request, temporary setup/integration harnesses, fixture
+generators and scratch scripts belong in `../label-enrollment-app-tests/harness/`, outside
+Git and the pnpm workspace. Do not add project `scripts/`, smoke commands or DB
+harness packages now. Ordinary source-adjacent unit tests and standard build/test
+CI remain. Scratch drivers must call the actual service/client—not copy backend
+logic—and the application/CI must never depend on that sibling folder. Formal
+committed integration harnesses will be added later when requested; distinguish
+local-only evidence from repeatable shared CI/release acceptance. This changes
+harness placement, not the requirement to test backend behavior before UI.
 
 ### Required delivery order within a feature
 
@@ -40,11 +52,11 @@ Planned acceptance scripts must:
 - Keep tokens/private data out of logs and evidence. A test-only harness is not a shipped clid dependency, generic native shell command or camera-control HTTP server.
 - Require separate approved nonproduction credentials/targets and explicit opt-in for live writes, including extraction. Scripted approvals may be synthesized only for isolated synthetic fixtures; passing tests never auto-approves real label associations or production enrollment.
 
-No acceptance scripts or new backend exist yet; the above is an implementation requirement. See the readiness summary in [README.md](README.md#development-status).
+The S01a local PostgreSQL proof has passed outside the repository; authenticated project/API acceptance is still pending. The real-service/state/client requirements above continue to apply. See the readiness summary in [README.md](README.md#development-status).
 
 ### Initial scope, subject to S00 approval
 
-- **Selected:** Tauri v2 + bundled web UI, retaining the existing Python capture engine as a local helper. React/TypeScript/Vite is proposed, pending framework confirmation.
+- **Selected:** Tauri v2 + bundled web UI, retaining the existing Python capture engine as a local helper. React/TypeScript/Vite is proposed, pending framework confirmation. The Workflow backend runtime is Go (user confirmed 2026-09-15).
 - Cloud Rust stitcher; cloud worker makes direct APID HTTP calls; no clid binary.
 - One approved label profile and flat continuous streams first.
 - One capture run / selected processing attempt per enrollment plan.
@@ -61,18 +73,20 @@ No acceptance scripts or new backend exist yet; the above is an implementation r
 | Desktop | New Tauri/web UI in this repository; proposed `apps/desktop/` | Web presentation; Rust-owned commands, credentials, helper supervision, cloud HTTP and SQLite upload journal |
 | Capture helper | Approved `dustid/labeltron-two` working branch/package based on `jhodges/wininstaller`; distribution/owner confirmed in S00 | Reuse Qt-free core, simulator and preflight; add headless protocol/sealing; preserve existing CLI/Qt regression clients |
 | Engine | `dustid/labeltron-two-stitcher` | Rust algorithm, wrapper, checkpoints and output contracts |
-| Workflow | New backend; repository/location confirmed in S00 | One TypeScript codebase for HTTP API, scheduler, importer and enrollment worker |
-| Contracts/tests | Proposed `packages/contracts/`, versioned schemas and safe fixtures | Cloud contracts and native/Python IPC; same identities/errors tested by TypeScript, Rust and Python |
+| Workflow | New Go backend; runtime confirmed 2026-09-15, repository/location still an S00 decision; S01a foundation under `apps/workflow/` | One Go module for HTTP API, scheduler, importer and enrollment worker |
+| Contracts/tests | Proposed `packages/contracts/`, versioned schemas and safe fixtures | Cloud contracts and native/Python IPC; same identities/errors tested by Go, TypeScript, Rust and Python |
 | Storage/compute | Approved cloud infrastructure | One upload-signing authority; adapt the existing upload service or implement its successor route deliberately |
 | APID | Existing HTTP API | No server change needed for supervised enrollment into an existing Reel |
 
-Suggested Workflow module boundaries: `auth/`, `runs/`, `storage/`, `jobs/`, `results/`, `reviews/`, `enrollment/`, `apid/`. These are modules, not separate microservices. Introduce tables/routes as their slices need them; do not scaffold every future module in the first PR.
+pnpm manages root tasks and future web packages under `apps/*` and `packages/*`. The backend's `package.json` only invokes Go tools; Go dependencies remain in `go.mod`/`go.sum`. No Turborepo, TypeScript backend or frontend scaffold is introduced. The initial Go client proves backend HTTP plumbing, not S10a's later native/web-client gate.
 
-The `reference/` checkouts remain ignored study material, never runtime imports, vendored code or submodules in this repository. The user has separately authorized creation of this private planning repository and the S00 branch. Application implementation still requires the slice gates; use pinned packages/explicit working branches in the chosen repositories, not edits to those reference checkouts.
+Suggested Workflow module boundaries under `apps/workflow/internal/`: `auth/`, `runs/`, `storage/`, `jobs/`, `results/`, `reviews/`, `enrollment/`, `apid/`. These are Go packages in one module, not separate microservices. Introduce tables/routes as their slices need them; do not scaffold every future module in the first PR.
+
+The checkouts are now at `../label-enrollment-app-tests/reference/`, outside the app and harness modules. They remain study material, never runtime imports, vendored code or submodules in this repository. The user has separately authorized creation of this private planning repository and the S00 branch. Application implementation still requires the slice gates; use pinned packages/explicit working branches in the chosen repositories, not edits to those reference checkouts.
 
 ## 3. Slice index and dependencies
 
-**S00 is in decision review**: Tauri/web UI with Python capture reuse and the backend-first delivery order are confirmed; remaining required decisions/access are pending. See the [decision sheet](plans/S00-pilot-scope.md). **S01-S24 and all child tickets are not started.** Dependencies mean acceptance passed, not merely that code exists. Only S00 is ready for review now.
+**S00 is in decision review**: desktop/capture reuse, delivery order, Go orchestration and pnpm workspace tooling are confirmed; other prerequisites remain pending. See the [decision sheet](plans/S00-pilot-scope.md). The build kickoff started bounded local groundwork in [S01a](plans/S01a-backend-foundation.md); its Go service/PostgreSQL persistence checkpoint is implemented and locally proven, but signed identity and project APIs remain pending. All full parent gates below remain unpassed. Dependencies mean acceptance, not merely code existence; this groundwork does not authorize pilot-dependent or live-write work.
 
 Keep the 25 parent IDs stable. Child gates separate backend/API/client/script readiness from UI completion; a downstream backend depends on the former, not on a screen. A parent passes only after its final child and inherited prerequisites pass. Parent numbers identify scope, not a mandatory serial execution order.
 
@@ -168,7 +182,7 @@ Every implementation slice must satisfy all of these, in addition to its own TOD
 
 - [ ] Scope, owner, affected repo/branch and acceptance cases agreed before coding.
 - [ ] B/A/C/T/U order followed where applicable; backend/API/client/script gate accepted before its UI work. Record any inapplicable layer explicitly.
-- [ ] Happy-path and failure-path tests plus repeatable headless acceptance script committed; assertions cover real API/durable state with declared external fakes. Real network/hardware writes are separately opt-in.
+- [ ] Happy/failure-path unit tests and headless proof recorded; use the current external-folder policy for temporary harnesses. Formal committed integration harnesses are deferred until requested. Local scratch results are not shared CI/release acceptance; real network/hardware writes remain separately opt-in.
 - [ ] Schema changes have migrations/compatibility tests where applicable; no hand-edited generated APID artifacts.
 - [ ] Authorization, bounded resources, secret redaction and safe path handling included where first introduced.
 - [ ] State-changing operations have durable intent and defined retry/cancel behavior; no false exactly-once claims.
@@ -185,13 +199,15 @@ A later reliability/security slice is a system-level rehearsal, not permission t
 
 **Outcome:** one explicit decision sheet, not assumptions hidden in code.
 **Depends on:** none. **Area:** product, algorithm owner and platform owner.
-**Decision review:** [plans/S00-pilot-scope.md](plans/S00-pilot-scope.md), on `slice/s00-pilot-scope`. Desktop shell/core reuse is confirmed; remaining required decisions and access are pending.
+**Decision review:** [plans/S00-pilot-scope.md](plans/S00-pilot-scope.md), on `slice/s00-pilot-scope`. Desktop shell/core reuse, delivery order and the Go Workflow runtime are confirmed; remaining required decisions and access are pending.
 
 TODO:
 - [x] Select Tauri + bundled web UI while retaining the Python capture engine as a local helper (user confirmed; no implementation implied).
 - [x] Use backend -> API -> nonvisual frontend/client integration -> scripted proof -> UI for each feature (user confirmed; no tests/implementation implied).
 - [ ] Confirm frontend framework/tooling proposal and cloud enrollment worker versus Windows-origin enrollment; record these separately from the shell and delivery-order decisions.
-- [ ] Confirm Workflow repository/runtime, capture-helper upstream/distribution/owners, operated EKS versus Batch/ECS, nonproduction endpoints and owners.
+- [x] Confirm the Workflow runtime: Go (user confirmed 2026-09-15; no implementation completeness implied).
+- [x] Use pnpm for workspace tasks/future web dependencies; retain Go modules for backend dependencies (user confirmed 2026-09-15).
+- [ ] Confirm the Workflow repository home, capture-helper upstream/distribution/owners, operated EKS versus Batch/ECS, nonproduction endpoints and owners.
 - [ ] Choose the initial profile, required DUST slots, serial authority and reference-data version.
 - [ ] Define scan-order/reference-order/APID-position mapping, including reverse feed and endpoint labels; define indexing and no-gap policy.
 - [ ] Obtain an approved small raw run, representative edge cases and independently checked label-to-QR-to-shield ground truth. Use supplied copies outside protected `manifests/`; do not read/change that directory.
@@ -205,6 +221,7 @@ TODO:
 
 **Outcome:** all components agree on input/output, identity and errors before integration.
 **Depends on:** S00. **Area:** shared contracts and chosen Workflow test package.
+**Local groundwork:** [S01a](plans/S01a-backend-foundation.md) records the limited Go/pnpm foundation begun after the build kickoff. Its probe/client tests do not complete the contracts or prerequisites below.
 
 TODO:
 - [ ] Define minimal versioned `CaptureManifest`, `ProcessingAttempt`, `ResultManifest`, `LabelCandidate`, `EnrollmentPlan`, row receipt and event/error schemas.
@@ -215,7 +232,7 @@ TODO:
 - [ ] Add fake native/helper, HTTP/object-store/runner adapters plus deterministic clock/fault injection, including malformed/oversized IPC, helper restart and delayed start responses. Mocks must not be mistaken for cloud, camera or scientific qualification.
 - [ ] Establish focused CI and acceptance-script conventions: explicit fixtures, actual local service/DB boundary, bounded waits, assertions, exit codes and redacted evidence. Define a UI-independent production client/command seam usable by scripts; normal CI requires no camera, AWS/APID key or protected reference files.
 
-**Acceptance:** TypeScript/Rust/Python consumers interpret shared golden identities/digests consistently; invalid fixtures and incompatible helper messages fail with stable machine codes.
+**Acceptance:** Go/TypeScript/Rust/Python consumers interpret shared golden identities/digests consistently; invalid fixtures and incompatible helper messages fail with stable machine codes.
 **Not included:** all future routes/tables, a new UI framework or a deployed service.
 
 ### S02 - Make fresh stitcher executions trustworthy
@@ -271,9 +288,10 @@ TODO:
 
 **Outcome:** a minimal service knows who the operator is and which project they may access.
 **Depends on:** S01. **Area:** Workflow `auth/`, service entry point and development deployment.
+**Current placement:** production migrations/database/auth code belongs here; temporary PostgreSQL setup and API proof drivers belong in the separate local test folder, not new project harness packages.
 
 TODO:
-- [ ] Add minimal service startup, health/readiness, configuration validation and PostgreSQL connection/migration harness.
+- [x] Implement startup, configuration, pgx pooling, Goose SQL migrations and sqlc-generated database readiness queries (S01a local proof). Generated-code checks run with unit/build CI; overall authorized-API readiness remains pending and temporary DB provisioning stays outside this repo.
 - [ ] Validate Google token issuer, audience, signature and lifetime using maintained libraries; do not build a new authentication system.
 - [ ] Map authenticated subjects to authorized projects and server-owned S3/APID context. Reject arbitrary client-supplied Team, bucket or image choices.
 - [ ] Add `GET /pipeline/v1/projects`, basic roles for capture/process/review/enroll, request IDs and redacted structured logging.
@@ -647,4 +665,4 @@ A feature moves into the initial scope only with an explicit decision, revised d
 - [ ] Select S01 as the first code slice after S00; do not start the entire service/UI in one change.
 - [ ] After S01, prioritize S05's backend/API/client/script proof; S02 engine work and S17a headless helper can proceed independently. Continue S06-S09 API proofs before S10a frontend-client integration and S10b Tauri UI. Run S04 only after its engine/fixture/access gates; do not introduce shell-first dependencies.
 
-For each future slice handoff, record: `owner`, `status`, `dependencies passed`, `scope`, `PR(s)`, `test evidence`, `demo`, `known limitations`, `reviewer`. All current implementation statuses remain **not started**.
+For each future slice handoff, record: `owner`, `status`, `dependencies passed`, `scope`, `PR(s)`, `test evidence`, `demo`, `known limitations`, `reviewer`. S01a is **in progress** on `slice/s01a-backend-foundation` with a Go/pnpm PostgreSQL persistence foundation; no full parent gate has passed. Other implementation work remains unstarted.

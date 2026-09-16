@@ -1,6 +1,6 @@
 # Labeltron Enrollment - System Design
 
-**Tauri + web UI with retained Python capture and backend-first, script-before-UI delivery selected. The new Workflow backend is not implemented; cloud deployment and remaining pilot decisions are still proposals.** See [S00](plans/S00-pilot-scope.md).
+**Tauri + web UI with retained Python capture, backend-first, script-before-UI delivery and a Go Workflow backend selected. Go service startup, PostgreSQL project/membership schema and database readiness exist on the S01a branch; authenticated project and pipeline APIs remain pending; cloud deployment and remaining pilot decisions are still proposals.** See [S00](plans/S00-pilot-scope.md).
 
 Detailed implementation plan: [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md).
 Slice-by-slice TODOs and dependencies: [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md).
@@ -24,7 +24,7 @@ One desktop experience, with different responsibilities on the station and in th
 - Build a Tauri v2 shell with a bundled web UI (React/TypeScript/Vite proposed); replace the Qt presentation layer.
 - Reuse the Python camera/capture core in a supervised helper; preserve camera recipes and simulator/golden behavior. Native Rust owns credentials, IPC, cloud HTTP and the upload journal.
 - Run the existing Rust/OpenCV stitcher as a cloud job, near S3.
-- Add a workflow backend for jobs, review, approval, progress and recovery.
+- Add a Go workflow backend for jobs, review, approval, progress and recovery.
 - Its enrollment worker calls APID directly. No clid executable or CLI parsing.
 - Keep capture available offline. Verified cloud jobs continue if the desktop closes.
 
@@ -116,7 +116,7 @@ WINDOWS STATION
 +---------------------------------------------------------------------------------+
 ```
 
-The API, scheduler, result importer and enrollment worker are roles in **one new backend codebase**, not four independently designed products. They are not implemented yet. Existing APID/AuthD and the native stitcher provide reviewed component contracts, not a ready end-to-end Workflow service; target-environment operation remains unvalidated.
+The API, scheduler, result importer and enrollment worker are roles in **one new Go backend module**, not four independently designed products. A pnpm workspace provides repository task entry points and future web packages; the backend's npm manifest is only a task wrapper, while Go modules own its dependencies. The selected SQL-first persistence stack is **pgx + sqlc + Goose**: SQL migrations are the application schema authority, sqlc generates typed Go queries, and Goose owns migration execution/versioning. Only service startup, PostgreSQL project/membership migrations and database-aware probes are implemented so far; domain APIs and worker roles remain pending. Existing APID/AuthD and the native stitcher provide reviewed component contracts, not a ready end-to-end Workflow service; target-environment operation remains unvalidated.
 
 Use the supplied EKS Job model if that infrastructure is operated already. Otherwise run the same container on Batch/ECS; do not build a Kubernetes platform merely to satisfy this diagram.
 
@@ -850,4 +850,4 @@ The [implementation backlog](IMPLEMENTATION_SLICES.md) retains 25 parent IDs and
 6. Is enrollment verify-only or identifiable by default for this project?
 7. Are partial Reels allowed, or must every required label be resolved before approval?
 
-Selected desktop direction: Tauri + bundled web UI with a retained Python capture helper. Proposed defaults still awaiting the relevant S00 approvals: React/TypeScript/Vite, cloud processing/enrollment, one qualified profile, explicit operator approval and no silent gaps. No clid dependency or local Windows stitcher is introduced.
+Selected desktop direction: Tauri + bundled web UI with a retained Python capture helper. Confirmed 2026-09-15: Go as the Workflow backend runtime. Proposed defaults still awaiting the relevant S00 approvals: React/TypeScript/Vite, cloud processing/enrollment, one qualified profile, explicit operator approval and no silent gaps. No clid dependency or local Windows stitcher is introduced.

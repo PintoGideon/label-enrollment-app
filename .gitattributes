@@ -1,0 +1,2 @@
+# Migration checksums use exact embedded bytes on every development platform.
+*.sql text eol=lf

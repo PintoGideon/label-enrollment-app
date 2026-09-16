@@ -1,0 +1,16 @@
+{
+  "name": "@label-enrollment/workflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workspace task wrapper for the Go Workflow service; not a JavaScript backend",
+  "scripts": {
+    "dev": "go run ./cmd/workflow",
+    "build": "go build -o ../../bin/workflow ./cmd/workflow",
+    "db:migrate": "go run ./cmd/workflow migrate",
+    "db:generate": "go -C tools tool sqlc generate -f ../sqlc.yaml",
+    "db:check": "go -C tools tool sqlc diff -f ../sqlc.yaml",
+    "fmt": "gofmt -w cmd internal pkg",
+    "lint": "go vet ./...",
+    "test": "go test -race -count=1 ./..."
+  }
+}

@@ -14,7 +14,7 @@ This plan replaces the earlier design; `PLAN.md` is retained only as historical 
 
 The user has selected Tauri + web UI and reuse of the Python capture engine. React + TypeScript + Vite is the recommended frontend stack, not yet a separately approved framework decision. A browser-hosted product and cross-platform camera support are not implied by this choice.
 
-**Backend readiness:** the new Workflow service, `/pipeline/v1` routes, durable jobs/approval/enrollment state and frontend clients are not implemented. This repository currently contains documentation only. Existing APID/AuthD routes, capture code and the Rust stitcher are reusable inputs, not an already integrated backend; live environments/access remain unvalidated.
+**Backend readiness:** the `/pipeline/v1` domain routes, durable jobs/approval/enrollment state and native/web frontend clients are not implemented. Besides planning documents, this repository holds only the S01a Go Workflow foundation (`apps/workflow/`), with PostgreSQL pooling/project-membership migrations and database-aware probes; overall readiness still fails closed for the pending authenticated project API. Existing APID/AuthD routes, capture code and the Rust stitcher are reusable inputs, not an already integrated backend; live environments/access remain unvalidated.
 
 **Selected delivery order, per feature:** backend -> API -> nonvisual frontend/client integration -> scripted proof -> UI. Domain/API tests start immediately; scripts additionally prove the real new service/state boundary before screens consume it.
 
@@ -142,7 +142,7 @@ WINDOWS STATION
              | HTTPS: identity, runs, progress, approval
              v
 CLOUD
-  Workflow API + scheduler + enrollment worker (TypeScript)
+  Workflow API + scheduler + enrollment worker (Go)
   PostgreSQL jobs, leases, audit, outbox
              |                            |
              | launch/reconcile           | direct authenticated HTTP
@@ -161,7 +161,8 @@ CLOUD
 | Desktop shell | Tauri v2 + bundled web UI; React/TypeScript/Vite proposed | Selected product direction; native host isolates filesystem, process and credential access from the renderer |
 | Local capture | Headless Python helper reusing `labeltron-two` core | Preserve camera behavior and simulator/golden tests; a versioned IPC adapter is new work |
 | Cloud algorithms | Keep Rust/OpenCV container | Correct repository and existing deployment path; independent release/versioning |
-| Workflow backend | TypeScript HTTP service and workers | Fits the surrounding APID/upload-service ecosystem; typed OpenAPI client where practical |
+| Workflow backend | Go HTTP service and workers in one module; user-confirmed 2026-09-15 | Role-specific processes from one codebase; bounded standard-library HTTP; direct APID/AuthD adapters; production packaging remains to be qualified |
+| Workspace tooling | pnpm workspace; user-confirmed 2026-09-15 | Root tasks delegate to Go; future web packages use pnpm dependencies. No JavaScript runtime in the deployed Go backend |
 | Cloud state | PostgreSQL, with transactional outbox and leased jobs | Durable run/approval/row state; no need for separate Redis and SQS in the first version |
 | Job execution | Existing EKS Job model **if that platform is operated already** | Reuse the supplied infrastructure; see alternative below |
 | Local persistence | Rust-owned SQLite plus Python-written sealed run manifests | One upload-journal writer; renderer/helper do not share writable DB access; cloud state remains authoritative |
@@ -701,7 +702,7 @@ Use legible status text as well as color. Keep irreversible actions explicit. A 
 
 ### Code organization
 
-Proposed desktop layout in this repository; the Workflow backend's repository remains an S00 decision. These are future paths, not existing/scaffolded modules:
+Proposed desktop layout in this repository; the Workflow backend's repository remains an S00 decision. The pnpm workspace and `apps/workflow/` Go foundation exist in S01a; the other paths below are proposed, not scaffolded. Workspace membership is limited to `apps/*` and `packages/*`, excluding `reference/`. The backend's `package.json` only wraps Go tasks; `go.mod` owns backend dependencies:
 
 ```text
 apps/desktop/
@@ -715,9 +716,11 @@ apps/desktop/
     src/storage/                 # SQLite, scoped files, verified uploads
     capabilities/                # permissions for the bundled main webview
     binaries/                    # generated target-specific helper, not Git data
-packages/contracts/              # schemas + TypeScript/Rust/Python golden fixtures
-scripts/acceptance/               # planned headless API/client proofs, not yet built
+apps/workflow/                   # Go Workflow module; S01a foundation exists (final home per S00 D02)
+packages/contracts/              # schemas + Go/TypeScript/Rust/Python golden fixtures
 ```
+
+Temporary setup/integration scripts and harnesses currently live in `../label-enrollment-app-tests/harness/`, separate from relocated reference sources under `../label-enrollment-app-tests/reference/`, not this repository or its pnpm workspace. Ordinary unit tests remain with source. Formal committed harnesses are deferred until requested; local proof does not imply shared CI acceptance. Production commands and CI must not depend on that folder.
 
 Build the capture helper from a pinned, approved `labeltron-two` working branch/package, not by importing `reference/` at runtime or copying that tree into Git. Proposed upstream additions are `src/labeltron/headless/` for the protocol wrapper and `src/labeltron/capture/seal.py` for sealing. The dependency/distribution arrangement and upstream owner must be confirmed in S00. Reuse `BurstRunner`, `RunRequest`, capture events, `CameraSystem`/`CameraDevice`, `SimulatedCameraSystem`, runtime/preflight and settings/layout code. Keep the existing CLI/Qt app working as regression clients of the shared core.
 
@@ -812,7 +815,7 @@ Do not build cloud and local algorithm execution simultaneously for v1. Define t
 
 ## 16. Delivery milestones and acceptance criteria
 
-The actionable backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md): 25 parent slices with separate backend/API/client/script and UI child gates. These milestones describe outcomes, not permission to build UI before its underlying capability is script-proven. No implementation has started.
+The actionable backlog is [IMPLEMENTATION_SLICES.md](IMPLEMENTATION_SLICES.md): 25 parent slices with separate backend/API/client/script and UI child gates. These milestones describe outcomes, not permission to build UI before its underlying capability is script-proven. Only the limited S01a Go/pnpm HTTP foundation has started; no milestone or full parent gate has passed.
 
 ```text
 Repeat for one small capability:
@@ -913,6 +916,8 @@ Algorithm correctness acceptance should be based on verified label↔QR↔DUST c
 10. Production retention, code-signing ownership, supported Windows versions and recovery/support responsibilities?
 
 ### First code slice and early proofs
+
+The user's build kickoff started the bounded [S01a](plans/S01a-backend-foundation.md) Go/pnpm HTTP foundation while pilot prerequisites remain pending. Its probe smoke test is not the authenticated project/database acceptance gate.
 
 After S00 acceptance, start **S01: executable contracts, canonical identities/digests and headless test-harness conventions**. Then prioritize **S05: backend service + authorized project API + nonvisual client + scripted proof**. S02 engine hardening and S17a headless helper can proceed independently.
 

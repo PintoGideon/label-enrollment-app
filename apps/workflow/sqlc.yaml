@@ -1,0 +1,13 @@
+version: "2"
+sql:
+  - engine: postgresql
+    schema:
+      - internal/database/migrations
+      - internal/database/schema/goose.sql
+    queries: internal/database/queries
+    gen:
+      go:
+        package: dbsql
+        out: internal/database/dbsql
+        sql_package: pgx/v5
+        omit_unused_structs: true
