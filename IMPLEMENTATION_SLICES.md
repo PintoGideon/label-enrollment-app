@@ -1,6 +1,6 @@
 # Labeltron Enrollment - Implementation Slices and TODOs
 
-**Status: parent backlog proposed; S01a local groundwork is in progress.** A Go/pnpm service with PostgreSQL pooling/migrations/readiness exists; its temporary smoke harness is in a separate local-only sibling folder, not the project. No parent acceptance gate is complete. Only evidenced child work and explicitly confirmed decisions may be checked. Repository-review findings are not implementation evidence.
+**Status: authenticated project listing is committed and locally proven; ORCH-01 is the next user-selected delivery slice.** Go/pgx/sqlc/Goose foundations remain in place; all new proof scripts stay in the external harness. No full parent acceptance gate is complete. Only evidenced work and explicitly confirmed decisions may be checked. Repository-review findings are not runtime evidence.
 
 Architecture: [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md).
 Detailed design: [DESKTOP_APP_PLAN.md](DESKTOP_APP_PLAN.md).
@@ -9,17 +9,28 @@ Identity decision: [AuthD login and accountable human ownership](plans/authentic
 
 This document is the execution-order and TODO reference. The other documents explain the architecture; they are not competing task trackers.
 
-### Next implementation increment — S01a list authorized projects
+### Next delivery slice — ORCH-01 processing orchestration
 
-**[One endpoint and one client method](plans/S01a-authenticated-projects.md):**
-AuthD-verified `GET /pipeline/v1/projects`, membership-filtered SQL and
-`ListProjects`. Base `23df567`; suggested branch `slice/s01a-project-list`.
-No feature code yet. Detail/readiness and other S05 work follow separately.
+The user grouped **command permissions, durable runs, verified S3 inputs,
+stitcher control/progress, result validation and approval** into
+[one processing-orchestration slice](plans/ORCH-01-processing-orchestration.md).
+Its acceptance gate is the actual API/client workflow with the real stitcher,
+through explicit immutable result approval. A simulated runner alone is not done.
+APID enrollment, UI and deployment/platform selection are excluded. The user
+confirmed local development first: launch the existing repository stitcher locally
+and connect Workflow to it. No cloud stitcher currently exists or is required.
 
-All integration proof lives in `../label-enrollment-harness/`; only focused
-unit/contract tests accompany application code. Keep planning/relocation separate
-from the feature PR. The linked ticket owns scope and acceptance; broader
-S00/S01/S05 gates and foundation migration/CI follow-ups remain open.
+The [project-list slice](plans/S01a-authenticated-projects.md) is implemented at
+`31c589f`, with actual-service/client proof using owned PostgreSQL and TLS signing
+fixtures. ORCH-01 builds on it; the first checkpoint is qualifying the real
+stitcher's local build/launch, then its synthetic processing fixture.
+
+Existing S05-S09/S11a IDs remain requirement traceability within this grouped
+slice, not separate user-facing delivery goals. Internal implementation steps
+can land incrementally, but the slice is accepted end to end. No new application
+test files for this first cut: all new checks/fixtures/reports live in
+`../label-enrollment-harness/`. Existing foundation tests remain. Parent gates,
+scientific qualification and live-cloud authority are not silently waived.
 
 ## 1. How we will build
 
@@ -29,14 +40,15 @@ S00/S01/S05 gates and foundation migration/CI follow-ups remain open.
 4. Develop headless capture/sealing and upload APIs in parallel where dependencies allow. The Python helper and native command core must be scriptable without a Tauri window.
 5. Keep slices independently reviewable and production enrollment disabled until explicit release/field gates pass. Existing APID/stitcher code is not proof that the new Workflow backend is implemented.
 
-A slice should normally fit in a few focused engineering days and one or a few small PRs. If refinement reveals more than about three days of implementation, split it into child tickets before coding. Native builds, infrastructure access and scientific qualification are uncertain; these are sizing guidelines, not delivery promises.
+A slice should normally fit in a few focused engineering days and one or a few small PRs. Native builds, infrastructure access and scientific qualification are uncertain; these are sizing guidelines, not delivery promises. For the explicitly grouped ORCH-01 slice, split implementation into reviewable checkpoints without replacing its integrated real-stitcher acceptance gate with separate component-only completion claims.
 
 ### Current local test-tooling policy
 
 All setup/integration harnesses, fixture generators, drivers and reports belong in
 `../label-enrollment-harness/`, outside this repository and pnpm workspace.
-Ordinary source-adjacent unit/contract tests remain; process/database/issuer
-orchestration stays external. Harnesses call the actual service/public client,
+Existing source-adjacent foundation tests remain. For the current first-cut
+slices, add no new application test files; new checks and process/database/issuer
+orchestration stay external. Harnesses call the actual service/public client,
 with no copied backend or reverse production/CI dependency. Keep harness changes
 and broad planning updates separate from feature PRs. Record concise commands,
 outcomes and limits in review evidence; full logs belong in the harness folder.
@@ -63,7 +75,7 @@ Planned acceptance scripts must:
 - Keep tokens/private data out of logs and evidence. A test-only harness is not a shipped clid dependency, generic native shell command or camera-control HTTP server.
 - Require separate approved nonproduction credentials/targets and explicit opt-in for live writes, including extraction. Scripted approvals may be synthesized only for isolated synthetic fixtures; passing tests never auto-approves real label associations or production enrollment.
 
-The S01a local PostgreSQL proof has passed outside the repository; authenticated project/API acceptance is still pending. The real-service/state/client requirements above continue to apply. See the readiness summary in [README.md](README.md#development-status).
+Local PostgreSQL and authenticated project-list proofs have passed outside the repository. This does not complete S05's command/context or application-readiness gates. ORCH-01 adds the real-stitcher integrated proof described above. See [current readiness](README.md#development-status).
 
 ### Initial scope, subject to S00 approval
 
@@ -98,7 +110,7 @@ The checkouts are now at `../label-enrollment-app-tests/reference/`, outside the
 
 ## 3. Slice index and dependencies
 
-**S00 is in decision review**: desktop/capture reuse, delivery order, Go orchestration, pnpm workspace tooling and the AuthD/human-ownership model are confirmed; other prerequisites remain pending. See the [decision sheet](plans/S00-pilot-scope.md). The build kickoff started bounded local groundwork in [S01a](plans/S01a-backend-foundation.md); its Go service/PostgreSQL persistence checkpoint is implemented and locally proven, but signed identity and project APIs remain pending. All full parent gates below remain unpassed. Dependencies mean acceptance, not merely code existence; this groundwork does not authorize pilot-dependent or live-write work.
+**S00 is in decision review**: desktop/capture reuse, delivery order, Go orchestration, pnpm workspace tooling and the AuthD/human-ownership model are confirmed; other prerequisites remain pending. See the [decision sheet](plans/S00-pilot-scope.md). The build kickoff started bounded local groundwork in [S01a](plans/S01a-backend-foundation.md); its Go/PostgreSQL foundation and authenticated project-list checkpoint are implemented and locally proven. Command, run, processing and approval APIs remain pending under ORCH-01. All full parent gates below remain unpassed. Dependencies mean acceptance, not merely code existence; this groundwork does not authorize pilot-dependent or live-write work.
 
 Keep the 25 parent IDs stable. Child gates separate backend/API/client/script readiness from UI completion; a downstream backend depends on the former, not on a screen. A parent passes only after its final child and inherited prerequisites pass. Parent numbers identify scope, not a mandatory serial execution order.
 
@@ -303,14 +315,14 @@ TODO:
 **Outcome:** a minimal service knows who the operator is and which project they may access.
 **Depends on:** S01. **Area:** Workflow `auth/`, service entry point and development deployment.
 **Current placement:** production migrations/database/auth code belongs here; temporary PostgreSQL setup and API proof drivers belong in the separate local test folder, not new project harness packages.
-**Next bounded increment:** [S01a project listing](plans/S01a-authenticated-projects.md)
-implements only the local project-list auth/API/client proof. Project detail and
-readiness changes follow separately. Its completion
-does not pass S05's inherited S00/S01 or remaining context/permission gates.
+**Completed local increment:** [S01a project listing](plans/S01a-authenticated-projects.md)
+at `31c589f`. ORCH-01 adds the command/object permission and readiness behavior
+required by the processing workflow. The local listing proof does not pass S05's
+inherited S00/S01 or remaining live context/permission gates.
 
 TODO:
 - [x] Implement startup, configuration, pgx pooling, Goose SQL migrations and sqlc-generated database readiness queries (S01a local proof). Generated-code checks run with unit/build CI; overall authorized-API readiness remains pending and temporary DB provisioning stays outside this repo.
-- [ ] Validate AuthD signatures, configured issuer/Workflow audience and lifetime using maintained JWT/JWKS libraries; bound trusted HTTPS key retrieval/cache/refresh and fail closed. No new identity provider or auth bypass.
+- [x] Validate AuthD signatures, configured issuer/Workflow audience and lifetime using maintained JWT/JWKS libraries; bound trusted HTTPS key retrieval/cache/refresh and fail closed (`31c589f`, local signed-fixture proof; live AuthD issuance remains unqualified).
 - [ ] Map verified `(issuer, subject)` to PostgreSQL project membership for read-only discovery; recognize human/service principals without treating a service token as human approval.
 - [ ] Add project list/detail, bounded UUID-keyset pagination, deterministic capture/process/review/enroll roles, non-disclosing 404s, server request IDs and redacted structured logging; implement truthful project-API readiness.
 - [ ] Before enabling commands, qualify current org/Team/action permission lookup and server-owned S3/APID context. Org claims, readable Team lists and client-supplied Team/bucket/image choices are not sufficient authority. Keep this outside the read-only S01a increment.
@@ -683,7 +695,8 @@ A feature moves into the initial scope only with an explicit decision, revised d
 ## 8. Next increment and remaining parent gates
 
 - [x] Reconcile the architecture/backlog with the selected AuthD login and human ownership; preserve source-review/runtime limits.
-- [ ] Implement the bounded [S01a project-list increment](plans/S01a-authenticated-projects.md) after foundation `23df567`: verifier -> API -> Go client -> isolated proof. No live environment or UI is needed for this increment.
+- [x] Implement the bounded [S01a project-list increment](plans/S01a-authenticated-projects.md): committed at `31c589f`, with local verifier/API/client/isolated proof.
+- [ ] Deliver [ORCH-01](plans/ORCH-01-processing-orchestration.md) as one local-development processing-through-approval slice. First build/launch the existing real stitcher locally, then prove the complete workflow with explicit synthetic profile/assets and controlled object storage. Deployment comes later.
 
 - [ ] Review and approve the proposed architecture and initial scope in this document.
 - [ ] Complete S00's decision sheet, especially required DUST slots, serial source, physical positions, indexing and operated cloud runtime.
@@ -691,4 +704,4 @@ A feature moves into the initial scope only with an explicit decision, revised d
 - [ ] After S00, complete S01's broader contracts/fixtures beyond the bounded S01a groundwork; do not start the entire service/UI in one change.
 - [ ] After S01, prioritize S05's backend/API/client/script proof; S02 engine work and S17a headless helper can proceed independently. Continue S06-S09 API proofs before S10a frontend-client integration and S10b Tauri UI. Run S04 only after its engine/fixture/access gates; do not introduce shell-first dependencies.
 
-For each future slice handoff, record: `owner`, `status`, `dependencies passed`, `scope`, `PR(s)`, `test evidence`, `demo`, `known limitations`, `reviewer`. S01a's foundation is committed on `slice/s01a-backend-foundation`; authenticated project discovery is its next unimplemented increment, with suggested branch `slice/s01a-project-list`. No full parent gate has passed. S06 follows S05 acceptance, then S07 verified import and S08/S09 processing/results according to their dependencies; existing migration/CI follow-ups remain tracked separately.
+For each future slice handoff, record: `owner`, `status`, `dependencies passed`, `scope`, `PR(s)`, `test evidence`, `demo`, `known limitations`, `reviewer`. S01a's foundation and authenticated project-list increment are committed (`23df567`, `31c589f`). The next user-selected delivery slice is ORCH-01 on `slice/orch01-processing-orchestration`. No full parent gate has passed. S06 follows S05 acceptance, then S07 verified import and S08/S09 processing/results according to their dependencies; existing migration/CI follow-ups remain tracked separately.

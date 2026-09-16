@@ -1,11 +1,14 @@
 # AuthD authentication, workflow ownership and end-to-end data flow
 
-**Status:** user confirmed the single-login flow and accountable human owner;
-the design/backlog were reconciled on 2026-09-15. The next implementation is
-[S01a project listing](S01a-authenticated-projects.md). This is
-design agreement, not an end-to-end runtime test or release acceptance.
-**Baseline:** foundation committed as `23df567`. No Workflow authentication has
-been implemented. This planning round changes Markdown only.
+**Status:** approved identity/ownership decision. Its bounded
+[S01a project-list increment](S01a-authenticated-projects.md) was implemented at
+`31c589f`, following foundation `23df567`. Local processing, ownership and
+processing-result approval now live in [ORCH-01](ORCH-01-processing-orchestration.md).
+The original target sequences below also include later native/cloud/APID work;
+they are not permission to expand this increment or evidence of live qualification.
+The current execution request is commit/push onto the previous slice branch,
+then test the 50-frame orchestration path before starting Tauri. Native UI,
+live AuthD/cloud and APID enrollment remain unimplemented/unqualified.
 
 ## Context
 
@@ -487,5 +490,6 @@ deployment deferred and no Kubernetes Job requirement. This plan makes human
 identity durable while distinguishing service-account execution. It does not
 claim implemented authentication, live AuthD/APID compatibility, verified cloud
 deployment or scientific acceptance.
-The next executable scope is the read-only authentication/project-discovery
-increment above; the rest of the data flow remains separately gated work.
+The read-only authentication/project-discovery increment above is complete.
+Current implementation/proof status is maintained in ORCH-01; the remaining
+native, cloud and enrollment flow stays separately gated.

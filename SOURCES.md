@@ -29,6 +29,24 @@ deployed APIs may subsequently change. The later AuthD identity review is
 recorded separately in [the authentication decision](plans/authentication-boundaries.md);
 it must not be attributed to an AuthD revision in this table, which contains none.
 
+### Latest stitcher development refresh — 2026-09-16
+
+For the user-requested **50-frame** development proof, upstream `main` was fetched
+into a separate allowlisted sparse checkout at
+`../label-enrollment-harness/checkouts/labeltron-two-stitcher/`, pinned at
+`7e67d9252faae2bb694ffa9ad297031c4066ebf0`. The original reference checkout stays at
+its reviewed commit above. Protected manifests were neither read nor checked out.
+The diff of `Cargo.toml`, `Cargo.lock`, `src`, `configs`, `templates`, `masks`,
+`models` and `docker/base.Dockerfile` against the old pin is empty. A new
+latest-commit-labelled image was nevertheless built and tested through Workflow.
+
+The 50 contiguous source frames (indices 2400–2449) produced 12 complete 640×480
+crops and 12 distinct QR decodes in 25.60 seconds. One invalid first-pair transform
+was skipped and recorded as a warning. Inputs and original outputs were
+versioned/verified through local MinIO. Serial authority is still missing, so no
+real-data approval/enrollment is claimed. Details and retained outputs live in
+`../label-enrollment-harness/reports/stream-50-latest.md`. Larger runs are deferred.
+
 ### Existing historical references retained
 
 The earlier `reference/clid` (`bdf80af`), `reference/apid` (`afb4c6e`), `reference/labeltron` (`f86ea2c`), `reference/labs-toolkit` (`8b91599`), `reference/labs-toolkit--apid-sdk-py` (`9050ff1`) and `reference/redirect-service` (`10bd97b`) checkouts were not removed or rewritten. The old Python stitcher and older SDK/spec assumptions are not the basis for this plan.

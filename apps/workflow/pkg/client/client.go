@@ -99,11 +99,18 @@ func (c *Client) probe(ctx context.Context, path, expectedStatus string) (api.Pr
 }
 
 func (c *Client) get(ctx context.Context, path, token string, maxBytes int) ([]byte, string, int, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	return c.request(ctx, http.MethodGet, path, token, nil, maxBytes)
+}
+
+func (c *Client) request(ctx context.Context, method, path, token string, payload []byte, maxBytes int) ([]byte, string, int, error) {
+	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(payload))
 	if err != nil {
 		return nil, "", 0, errors.New("could not construct workflow request")
 	}
 	request.Header.Set("Accept", "application/json")
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}

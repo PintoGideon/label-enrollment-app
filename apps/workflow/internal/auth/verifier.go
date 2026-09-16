@@ -39,6 +39,28 @@ var (
 type Principal struct {
 	Issuer  string
 	Subject string
+	Kind    string
+}
+
+func (p Principal) Human() bool { return p.Valid() && p.Kind == "human" }
+
+type accessClaims struct {
+	jwt.RegisteredClaims
+	PrincipalKind json.RawMessage `json:"principal_kind"`
+}
+
+// Reviewed AuthD issuance omits principal_kind for humans and emits "service"
+// for machines. Explicit null, unknown kinds and non-string claims fail closed.
+// Live issuance compatibility remains a separate qualification gate.
+func (c *accessClaims) kind() string {
+	if len(c.PrincipalKind) == 0 {
+		return "human"
+	}
+	var kind string
+	if json.Unmarshal(c.PrincipalKind, &kind) != nil || (kind != "human" && kind != "service") {
+		return ""
+	}
+	return kind
 }
 
 func (p Principal) Valid() bool {
@@ -101,10 +123,11 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	if raw == "" || len(raw) > MaxTokenBytes || strings.ContainsAny(raw, " \t\r\n") {
 		return Principal{}, ErrInvalid
 	}
+
 	if v == nil {
 		return Principal{}, ErrUnavailable
 	}
-	claims := &jwt.RegisteredClaims{}
+	claims := &accessClaims{}
 	options := []jwt.ParserOption{
 		jwt.WithValidMethods([]string{"EdDSA", "RS256", "ES256"}),
 		jwt.WithIssuer(v.cfg.Issuer), jwt.WithAudience(v.cfg.Audience),
@@ -130,13 +153,13 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	if ctx.Err() != nil {
 		return Principal{}, ctx.Err()
 	}
-	if err != nil {
+	if err != nil || claims.kind() == "" {
 		if errors.Is(err, ErrUnavailable) {
 			return Principal{}, ErrUnavailable
 		}
 		return Principal{}, ErrInvalid
 	}
-	return Principal{Issuer: claims.Issuer, Subject: claims.Subject}, nil
+	return Principal{Issuer: claims.Issuer, Subject: claims.Subject, Kind: claims.kind()}, nil
 }
 
 func (v *Verifier) key(ctx context.Context, kid string, token *jwt.Token) (any, error) {

@@ -52,7 +52,7 @@ func TestEmbeddedGooseSourcesRequireNoConnection(t *testing.T) {
 	}
 	defer store.Close()
 	sources := store.migrator.ListSources()
-	if len(sources) != 1 || sources[0].Version != 1 || sources[0].Path != "001_projects.sql" {
+	if len(sources) != 2 || sources[0].Version != 1 || sources[0].Path != "001_projects.sql" || sources[1].Version != 2 || sources[1].Path != "002_processing.sql" {
 		t.Fatal("Goose did not discover the expected embedded SQL source")
 	}
 	for _, source := range sources {

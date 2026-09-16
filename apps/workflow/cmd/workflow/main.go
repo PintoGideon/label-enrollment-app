@@ -14,6 +14,7 @@ import (
 	"github.com/PintoGideon/label-enrollment-app/apps/workflow/internal/config"
 	"github.com/PintoGideon/label-enrollment-app/apps/workflow/internal/database"
 	"github.com/PintoGideon/label-enrollment-app/apps/workflow/internal/httpapi"
+	"github.com/PintoGideon/label-enrollment-app/apps/workflow/internal/processing"
 )
 
 func main() {
@@ -59,13 +60,33 @@ func run(args []string, getenv func(string) string, logger *slog.Logger) int {
 		return 1
 	}
 	defer verifier.Close()
+	policy, err := config.LoadProcessing(cfg.ProcessingFile)
+	if err != nil || (policy != nil && !cfg.Auth.Enabled()) {
+		logger.Error("invalid local Workflow processing policy or disabled authentication")
+		return 1
+	}
+	processor, err := processing.New(store, policy)
+	if err != nil {
+		logger.Error("could not initialize local Workflow processing")
+		return 1
+	}
+	var processingAPI httpapi.ProcessingAPI
+	if processor != nil {
+		processingAPI = processor
+	}
 	listener, err := net.Listen("tcp", cfg.Address)
 	if err != nil {
 		logger.Error("could not open workflow listener")
 		return 1
 	}
+	if processor != nil {
+		workerCtx, workerCancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() { defer close(done); processor.Work(workerCtx) }()
+		defer func() { workerCancel(); <-done }()
+	}
 	logger.Info("workflow foundation listening", "address", listener.Addr().String(), "ready", false)
-	if err := httpapi.Serve(ctx, listener, store, verifier, store); err != nil {
+	if err := httpapi.Serve(ctx, listener, store, verifier, store, processingAPI); err != nil {
 		logger.Error("workflow server stopped unexpectedly")
 		return 1
 	}

@@ -39,23 +39,27 @@ upload flow must be adapted before the complete one-login journey is available.
 - [Historical plan — superseded](PLAN.md)
 - [Go service development guide](apps/workflow/README.md)
 - [S01a foundation checkpoint and test evidence](plans/S01a-backend-foundation.md)
-- [Next increment: S01a list authorized projects](plans/S01a-authenticated-projects.md)
+- [Implemented: S01a list authorized projects](plans/S01a-authenticated-projects.md)
+- [In progress: ORCH-01 processing through approval](plans/ORCH-01-processing-orchestration.md)
 - [AuthD login, human ownership and workload boundaries](plans/authentication-boundaries.md)
 
 ## Development status
 
-**Go service and PostgreSQL persistence foundations work locally; the authenticated Workflow API is not ready yet.**
+**Go/PostgreSQL, authenticated projects and local processing orchestration work.
+ORCH-01 remains in progress; overall readiness stays 503. Development now uses a
+50-frame real-stream subset with the latest fetched stitcher, not full captures.**
 
 | Component | Current state |
 |---|---|
 | Go service and PostgreSQL | pgx pool, Goose SQL migrations, sqlc-generated readiness queries and project/membership schema implemented and locally proven |
-| Authentication, `/pipeline/v1` projects and run/job/approval/enrollment APIs | Not implemented; overall readiness stays 503 |
+| Authentication and `GET /pipeline/v1/projects` | Implemented at `31c589f`; locally proven through the actual service/client and signed-token fixtures |
+| Run/processing/result/approval APIs | Implemented; actual-service/client synthetic proof through approval passed; remaining fault/scientific gates pending |
 | APID/AuthD | Existing code/contracts reviewed; target live environment and access not validated |
-| Rust stitcher and Python capture core | Existing reusable implementations; identified hardening and integration remain |
-| Headless clients/acceptance scripts, capture helper protocol, Tauri UI | Go probe client in the repo; local smoke harness kept separately; full acceptance, helper protocol and UI pending |
+| Rust stitcher and Python capture core | Latest fetched stitcher `7e67d925` exercised on 50 real frames; Python capture core untouched |
+| Headless clients/acceptance scripts, capture helper protocol, Tauri UI | Go probe/project/processing clients and external proofs implemented; helper protocol and UI pending |
 
-Application implementation has started only as limited local groundwork: the
-S01a Go backend foundation on `slice/s01a-backend-foundation`. The backlog
+Local implementation includes the S01a Go foundation and project-list slice
+(`23df567`, `31c589f`). The backlog
 still begins with **S00: lock the pilot scope and unblock access**; its
 unresolved decisions and access block S01/S05 acceptance, not local groundwork.
 The [S00 decision sheet](plans/S00-pilot-scope.md) records desktop-shell/capture
@@ -65,21 +69,34 @@ remaining scope, framework, environment and access decisions still block S00.
 
 Use a separate branch for each slice. Keep tests, review evidence, and scope
 changes with that slice; do not mark proposed or mocked behavior as validated.
-Creating this repository does not yet decide where the Workflow backend will
-live; that remains an S00 decision. The S01a Go foundation is developed under
-`apps/workflow/` here in the meantime.
+Workflow and stitching are cloud components in the target architecture. Final
+repository ownership and hosting/deployment setup remain S00 decisions; the Go
+implementation currently lives under `apps/workflow/` here.
 
-## Next implementation increment
+## Current delivery slice
 
-**[S01a — list authorized projects](plans/S01a-authenticated-projects.md)**:
-one authenticated `GET /pipeline/v1/projects`, one sqlc query over the existing
-membership tables and one Go client method. Continue from `23df567` on suggested
-branch `slice/s01a-project-list`. Feature code is not implemented yet.
+**[ORCH-01 — processing orchestration through result approval](plans/ORCH-01-processing-orchestration.md)**
+groups command permissions, durable runs, verified S3 inputs, stitcher
+control/progress, result validation and explicit approval into one slice.
+Acceptance runs the actual Workflow API/client with the real stitcher, not only
+a simulated runner. **Local development first:** real Rust stitching is connected
+to local Workflow, PostgreSQL and S3-compatible storage. There is no cloud
+stitcher to depend on.
 
-All integration drivers/fixtures/reports belong in `../label-enrollment-harness/`.
-Keep this planning/relocation work separate from the feature PR. Project detail,
-readiness changes, migration/CI cleanup and UI are follow-ups. S00/S01/S05 remain
-open; this local proof needs no live credentials.
+The current development dataset is exactly 50 contiguous frames (2400–2449) from
+`stream_20260908_120631`. Latest-source processing produced 12 complete crops in
+25.60 seconds. All 50 input versions and 34 archived output files were byte-verified
+in local MinIO. One skipped first-pair stitch warning is retained. Serial authority
+is not supplied, so real-data approval remains blocked; no APID calls occurred.
+See `../label-enrollment-harness/reports/stream-50-latest.md` for retained images,
+performance and limits. The harness rejects full-stream manifests; larger testing
+is explicitly deferred.
+
+APID enrollment, UI and deployment/platform selection are outside this slice.
+Workflow and stitching remain cloud components in the eventual product. All new
+checks/fixtures/reports live in `../label-enrollment-harness/`; no new application
+test files for this first cut. Existing foundation tests and separate
+S00/scientific/live-environment gates remain.
 
 ## Workspace and backend development
 
@@ -98,8 +115,8 @@ pnpm dev     # foreground service on 127.0.0.1:8080; Ctrl-C to stop
 ```
 
 `GET /healthz` returns 200. `GET /readyz` now performs actual database/schema
-checks, but overall status remains 503 `NOT_READY` until the authenticated
-project API exists. A ready database is not a ready enrollment workflow.
+checks, but overall status remains 503 `NOT_READY` until the deferred application
+readiness gate is qualified; authenticated project listing already exists. A ready database is not a ready enrollment workflow.
 
 `WORKFLOW_DATABASE_URL` optionally selects an explicit local PostgreSQL URL;
 without it, no database connection is attempted. `pnpm db:migrate` explicitly

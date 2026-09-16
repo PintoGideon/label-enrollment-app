@@ -88,6 +88,9 @@ func (s *Store) Check(ctx context.Context) api.DatabaseStatus {
 	if err := s.queries.CheckProjectSchema(ctx); err != nil {
 		return schemaErrorStatus(err, api.DatabaseSchemaMismatch)
 	}
+	if err := s.queries.CheckProcessingSchema(ctx); err != nil {
+		return schemaErrorStatus(err, api.DatabaseSchemaMismatch)
+	}
 	return api.DatabaseReady
 }
 

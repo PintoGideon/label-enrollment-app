@@ -9,9 +9,10 @@ import (
 )
 
 type Config struct {
-	Address     string
-	DatabaseURL string `json:"-"`
-	Auth        Auth
+	Address        string
+	DatabaseURL    string `json:"-"`
+	ProcessingFile string `json:"-"`
+	Auth           Auth
 }
 
 // Load deliberately permits only literal loopback addresses for this local-only
@@ -38,5 +39,5 @@ func Load(getenv func(string) string) (Config, error) {
 	if err := auth.Validate(); err != nil {
 		return Config{}, err
 	}
-	return Config{Address: net.JoinHostPort(host, strconv.Itoa(number)), DatabaseURL: databaseURL, Auth: auth}, nil
+	return Config{Address: net.JoinHostPort(host, strconv.Itoa(number)), DatabaseURL: databaseURL, Auth: auth, ProcessingFile: getenv("WORKFLOW_PROCESSING_CONFIG")}, nil
 }

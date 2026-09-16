@@ -1,8 +1,11 @@
 # Go Workflow service
 
-Local S01a foundation: HTTP lifecycle, a real PostgreSQL connection pool and
-explicit Goose migrations and sqlc-generated queries over pgx.
-**Authentication and project HTTP APIs are pending.**
+Local Go Workflow: authenticated project discovery, PostgreSQL run/command/event
+persistence, verified S3-compatible inputs and local execution of the existing
+Rust stitcher. Processing review/approval passed the external synthetic harness;
+a latest-stitcher 50-frame real-data inspection also passed, with approval blocked
+for missing serial authority. This is not a deployed/scientifically qualified
+or APID enrollment service.
 Rust remains responsible for image processing; future Go enrollment workers call
 APID directly without invoking clid.
 
@@ -11,7 +14,7 @@ APID directly without invoking clid.
 ```text
 apps/workflow/
   package.json                 pnpm task wrapper, not a JavaScript backend
-  go.mod / go.sum               service dependencies only: pgx v5.11.0, Goose v3.28.0
+  go.mod / go.sum               runtime dependencies: pgx, Goose, JWT/JWKS and AWS S3 SDK
   tools/go.mod / go.sum         developer tooling module: sqlc v1.31.1; never a service dependency
   sqlc.yaml                    SQL inputs and pgx/v5 Go generation settings
   cmd/workflow/                 serve/migrate commands and signal handling
@@ -19,8 +22,10 @@ apps/workflow/
   internal/database/            pool, Goose adapter and read-only readiness
     migrations/001_projects.sql embedded Goose SQL; application schema authority
     schema/goose.sql            sqlc-only description of Goose-owned metadata
-    queries/                    SQL query sources (currently readiness)
+    queries/                    readiness, membership and processing SQL
     dbsql/                      checked-in generated Go; do not hand-edit
+  internal/auth/                bounded Workflow JWT/JWKS verification
+  internal/processing/          input snapshots, local runner, result/review control
   internal/httpapi/             routes, resource bounds and server lifecycle
   pkg/api/                      shared Go probe/error/readiness contracts
   pkg/client/                   reusable nonvisual HTTP client
@@ -80,8 +85,8 @@ migration. sqlc reads the Goose migration directory as the application schema.
 `schema/goose.sql` describes the library-owned version table only for codegen;
 it is never executed by the application. Check it when upgrading Goose.
 
-The service already consumes generated readiness queries. Authorized project
-queries will follow in the auth/project slice; no unused CRUD API is introduced.
+The service consumes generated readiness, project membership and processing
+queries. Command receipts, history and revision changes commit transactionally.
 `pnpm check` (including CI) runs `sqlc diff` to detect stale generated code. That
 check needs no database and is **not** a migration checksum or live drift audit.
 
@@ -166,18 +171,20 @@ timeout, which long backfills or index builds will exceed.
 |---|---|
 | `GET /healthz` | 200: process liveness only |
 | `GET /readyz` | 503 `NOT_READY`, with actual database status and project API `not_implemented` |
-| `GET /pipeline/v1/projects` | 404: not implemented; no fake project list |
+| `GET /pipeline/v1/projects` | Authenticated membership-filtered project page |
 
 Database states are `not_configured`, `unavailable`, `migration_required`,
 `schema_mismatch` or `ready`. Even a ready database does not make an unimplemented
-project/auth API ready. Example after applying migrations:
+application ready. The readiness marker is intentionally still deferred; it does
+not mean the project-list route is absent. Example after applying migrations:
 
 ```json
-{"error":{"code":"NOT_READY","message":"Authenticated project API is not implemented yet."},"checks":{"database":"ready","projectApi":"not_implemented"}}
+{"error":{"code":"NOT_READY","message":"Authenticated project API readiness is not implemented yet."},"checks":{"database":"ready","projectApi":"not_implemented"}}
 ```
 
 `pkg/client` exposes validated checks on `*client.APIError.Checks`. It caps bodies
-at 64 KiB, applies a three-second timeout, honors cancellation and refuses
+per endpoint (64 KiB probes, 256 KiB projects, bounded larger processing data),
+applies a three-second timeout, honors cancellation and refuses
 redirects. HTTP is loopback-only; other origins require HTTPS. Untrusted response
 messages/bodies do not become client error text.
 
@@ -195,20 +202,72 @@ local replacement. It builds the actual service and owns an isolated PostgreSQL
 cluster. Proven locally: sqlc-backed read-only readiness, no startup migration,
 retired-ledger rejection, per-file rollback on DDL collision, concurrent/repeated
 migration, role/FK constraints, service restart, version/column mismatch rejection,
-database outage/restart, sanitized migration logs and owned resource cleanup. No existing
-DB, AWS/APID/Google service or real label data was used.
+database outage/restart, sanitized migration logs and owned resource cleanup.
+That historical foundation proof used no existing DB, AWS/APID/Google service or
+real label data; the later 50-frame processing inspection is separately documented.
 
 References are separately under `../label-enrollment-app-tests/reference/`, outside
 both the app and harness modules. Never recursively run Go tools from that parent
 container or inspect the stitcher's protected `manifests/` directory.
 
-Next: [S01a project listing](../../plans/S01a-authenticated-projects.md)
-after foundation `23df567`: AuthD JWT/JWKS verification for the configured Workflow
-audience, one membership-filtered project-list route, one Go client method and
-proof in `../label-enrollment-harness/` relative to the repository root. Detail
-and readiness changes follow separately. Auth code
-is not implemented yet. The [identity decision](../../plans/authentication-boundaries.md)
-defines single login and human accountability; run/approval ownership schema comes
-later. S06 run registry follows S05 acceptance. S00/full S01/S05, live service,
-scientific and UI gates remain separate. All integration harnesses remain outside
-the project; focused source-adjacent unit/contract tests stay with the code.
+[S01a project listing](../../plans/S01a-authenticated-projects.md) is committed.
+[ORCH-01](../../plans/ORCH-01-processing-orchestration.md) is in progress. All new
+proof scripts, fixtures and reports are in `../label-enrollment-harness/`; no new
+application test files are being added for this first cut. Existing foundation
+tests remain. S00/full parent, scientific, live AuthD/cloud, native/UI and release
+gates are separate.
+
+## Local processing
+
+`WORKFLOW_PROCESSING_CONFIG` explicitly selects an administrator-owned JSON policy.
+It requires authentication and a migrated database. No policy means processing
+access is unavailable; there is no unauthenticated/test bypass. The policy selects
+an absolute workspace and local Docker Unix socket, an immutable image ID, a
+literal-loopback S3-compatible endpoint with explicit credentials, project/source
+bucket-prefix allowlists and frozen profile assets. Keep its credentials private.
+It never discovers cloud credentials, uses a remote Docker context or calls APID.
+
+Under `/pipeline/v1/projects/{project}/runs`:
+
+- `POST` registers exact sorted filenames, sizes and SHA-256s.
+- `GET /{run}` and `/events` retrieve durable state/progress.
+- `POST /{run}/verify`, `/start`, `/cancel` control asynchronous processing.
+- `GET /{run}/results/{attempt}` and `/artifacts/{sha256}` under that result inspect
+  published result metadata and PNG bytes; no executable engine HTML is served.
+- `POST /{run}/review`, `/approve` bind explicit decisions to an immutable result.
+- `GET /{run}/approvals/{approval}` retains historical processing-only approval.
+
+Commands require a verified human, a UUID `commandId` and (after registration)
+current `revision`. Current project roles apply: capture registers; process
+verifies/starts/cancels; review reviews/approves; any member may inspect. Owner and
+individual action actors remain distinct. Replays reauthorize and return their
+original receipt; changed payloads/stale revisions conflict. Worker claims are
+leased/fenced, recheck authority and reconcile deterministic execution identities.
+A persistent launch guard prevents an ambiguous Docker start from executing the
+algorithm twice; uncertainty never implies success.
+
+The local runner invokes the pinned `stitchin-complete` binary, without the
+upstream false-success logging wrapper, `--resume`, user tokens or networking.
+Inputs/assets are read-only; each attempt has separate output, four workers/four
+CPU quota, 4 GiB memory and a one-hour execution deadline. Host workspace/socket
+must remain stable for recovery. Existing containers and output are retained;
+production retention/cleanup and cloud deployment are not qualified here.
+
+Inputs are bounded at 10,000 frames / 16 GiB total / 16 MiB each. Complete S3
+inventory and downloaded bytes are checked, versions recorded, and a disk
+snapshot sealed before processing; entire captures are not accumulated in RAM.
+Filename case collisions are rejected. Verification is cancelable and bounded
+at 15 minutes. Asset bundles retain a separate 256 MiB/1,000-file bound.
+
+A `synthetic` profile requires explicit QR/serial reference data and expected
+serials. An `inspection` profile may process a provided capture without inventing
+those identities (`reference` empty, `expectedSerials: []`, direction may be
+`auto`). It deliberately ends with `REFERENCE_REQUIRED` after successful engine
+execution: raw outputs remain inspectable in the owned workspace, but no approved
+result is published. Correct physical associations and enrollment eligibility
+must not be inferred from process exit, crop counts or QR decoding alone.
+
+Inputs use the actual S3 SDK. Workflow's current published artifact store is the
+owned local workspace; harness archival of original outputs to local object
+storage is not a cloud-S3 publication/recovery guarantee. Live AWS storage and
+APID enrollment require separate configuration, permission and qualification.
